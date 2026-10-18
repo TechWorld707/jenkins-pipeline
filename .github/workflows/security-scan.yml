@@ -108,6 +108,7 @@ jobs:
                   summary.write("\nShowing the first 100 findings.\n")
               summary.write("\nDownload the **trivy-sarif-report** artifact for the complete table and SARIF data.\n")
           PYREPORT
+          python3 .github/scripts/render_report.py trivy-report.md
 
       - name: Upload Trivy findings to GitHub code scanning
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
@@ -123,6 +124,7 @@ jobs:
           path: |
             trivy-results.sarif
             trivy-report.md
+            trivy-report.html
           retention-days: 7
 
       # This second scan makes HIGH or CRITICAL findings fail the job.
@@ -335,6 +337,7 @@ jobs:
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
               output.write(summary + footer)
           PYREPORT
+          python3 .github/scripts/render_report.py sonar-reports/report.md
 
       - name: Collect server logs and discard temporary SonarQube
         if: ${{ always() }}
