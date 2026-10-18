@@ -1,5 +1,5 @@
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -36,7 +36,9 @@ class Enquiry(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
     )
 
 
@@ -68,7 +70,10 @@ def health():
 
 
 @app.post("/api/enquiries", status_code=201)
-def create_enquiry(payload: EnquiryCreate, db: Annotated[Session, Depends(get_db)]):
+def create_enquiry(
+    payload: EnquiryCreate,
+    db: Annotated[Session, Depends(get_db)],
+):
     name = payload.name.strip()
     if len(name) < 2:
         raise HTTPException(status_code=422, detail="Please enter your name.")
@@ -80,7 +85,10 @@ def create_enquiry(payload: EnquiryCreate, db: Annotated[Session, Depends(get_db
         db.refresh(enquiry)
     except SQLAlchemyError as exc:
         db.rollback()
-        raise HTTPException(status_code=503, detail="We could not save your enquiry. Please try again.") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="We could not save your enquiry. Please try again.",
+        ) from exc
 
     return {"message": "Thank you. Your enquiry has been received."}
 
@@ -90,5 +98,8 @@ def database_health(db: Annotated[Session, Depends(get_db)]):
     try:
         db.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
-        raise HTTPException(status_code=503, detail="Database is unavailable.") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Database is unavailable.",
+        ) from exc
     return {"status": "ok"}

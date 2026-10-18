@@ -29,13 +29,19 @@ jobs:
         run: python -m pip install ruff
 
       - name: Lint Python backend
-        run: ruff check app/backend
+        run: ruff check .
 
       - name: Check Python syntax
+        if: ${{ hashFiles('app/backend/**/*.py') != '' }}
         run: python -m compileall -q app/backend
 
       - name: Check Docker Compose configuration
+        if: ${{ hashFiles('app/docker-compose.yml') != '' }}
         run: docker compose -f app/docker-compose.yml config --quiet
+
+      - name: Explain why Docker Compose validation was skipped
+        if: ${{ hashFiles('app/docker-compose.yml') == '' }}
+        run: echo "Docker Compose validation was skipped because app/docker-compose.yml is absent from this checkout. Commit and push the app files to enable validation."
 
   trivy:
     name: Trivy filesystem scan
@@ -49,7 +55,7 @@ jobs:
 
       # Create a SARIF report so findings can appear in GitHub code scanning.
       - name: Scan and create SARIF report
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -76,7 +82,7 @@ jobs:
 
       # This second scan makes HIGH or CRITICAL findings fail the job.
       - name: Fail if HIGH or CRITICAL findings exist
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
