@@ -210,7 +210,7 @@ jobs:
       - name: Create temporary credentials and project
         id: sonar-setup
         run: |
-          sonar_password="$(openssl rand -hex 24)"
+          sonar_password="Aa1!$(openssl rand -hex 24)"
           echo "::add-mask::$sonar_password"
           curl --fail-with-body --silent --show-error --max-time 30 \
             -u admin:admin -X POST "$SONAR_HOST_URL/api/users/change_password" \
