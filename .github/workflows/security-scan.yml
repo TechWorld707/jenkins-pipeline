@@ -32,10 +32,16 @@ jobs:
         run: ruff check .
 
       - name: Check Python syntax
+        if: ${{ hashFiles('app/backend/**/*.py') != '' }}
         run: python -m compileall -q app/backend
 
       - name: Check Docker Compose configuration
+        if: ${{ hashFiles('app/docker-compose.yml') != '' }}
         run: docker compose -f app/docker-compose.yml config --quiet
+
+      - name: Explain why Docker Compose validation was skipped
+        if: ${{ hashFiles('app/docker-compose.yml') == '' }}
+        run: echo "Docker Compose validation was skipped because app/docker-compose.yml is absent from this checkout. Commit and push the app files to enable validation."
 
   trivy:
     name: Trivy filesystem scan
