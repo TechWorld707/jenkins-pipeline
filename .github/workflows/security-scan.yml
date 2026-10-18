@@ -66,6 +66,49 @@ jobs:
           output: trivy-results.sarif
           exit-code: "0"
 
+      - name: Create Trivy table report
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+        run: |
+          python3 - <<'PYREPORT'
+          import html
+          import json
+          import os
+          from pathlib import Path
+
+          def cell(value):
+              return html.escape(str(value)).replace("|", "&#124;").replace("\r", " ").replace("\n", " ")
+
+          report = json.loads(Path("trivy-results.sarif").read_text())
+          rows = []
+          for run in report.get("runs", []):
+              for result in run.get("results", []):
+                  locations = result.get("locations") or [{}]
+                  location = locations[0].get("physicalLocation", {})
+                  target = location.get("artifactLocation", {}).get("uri", "N/A")
+                  line = location.get("region", {}).get("startLine", "—")
+                  message = result.get("message", {}).get("text", "")
+                  rows.append([result.get("ruleId", "N/A"), target, line, message])
+
+          intro = ("## Trivy security scan\n\n"
+                   "Scanners: vulnerabilities, misconfigurations, and secrets. "
+                   "Severity filter: HIGH and CRITICAL; unfixed vulnerabilities excluded.\n\n"
+                   f"**Findings: {len(rows)}**\n\n")
+
+          def table(limit):
+              if not rows:
+                  return "No findings matched the scan filters.\n"
+              lines = ["| Rule | File | Line | Finding |", "| --- | --- | --- | --- |"]
+              lines.extend("| " + " | ".join(map(cell, row)) + " |" for row in rows[:limit])
+              return "\n".join(lines) + "\n"
+
+          Path("trivy-report.md").write_text(intro + table(len(rows)))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(intro + table(100))
+              if len(rows) > 100:
+                  summary.write("\nShowing the first 100 findings.\n")
+              summary.write("\nDownload the **trivy-sarif-report** artifact for the complete table and SARIF data.\n")
+          PYREPORT
+
       - name: Upload Trivy findings to GitHub code scanning
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4
@@ -77,7 +120,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: trivy-sarif-report
-          path: trivy-results.sarif
+          path: |
+            trivy-results.sarif
+            trivy-report.md
           retention-days: 7
 
       # This second scan makes HIGH or CRITICAL findings fail the job.
@@ -132,39 +177,174 @@ jobs:
   sonarqube:
     name: SonarQube analysis
     runs-on: ubuntu-latest
-    # Set the SONAR_ENABLED repository variable to true when SonarQube is ready.
-    if: ${{ vars.SONAR_ENABLED == 'true' }}
+    timeout-minutes: 25
+    env:
+      SONAR_HOST_URL: http://127.0.0.1:9000
+      SONAR_PROJECT_KEY: webtech
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Scan with SonarQube
-        uses: SonarSource/sonarqube-scan-action@v8.3.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
-            -Dsonar.sources=app
-
-      - name: Add SonarQube report link to the workflow summary
-        if: ${{ always() && hashFiles('.scannerwork/report-task.txt') != '' }}
+      # Disposable evaluation server: no persistent database or credentials.
+      - name: Start temporary SonarQube
         run: |
-          dashboard_url="$(sed -n 's/^dashboardUrl=//p' .scannerwork/report-task.txt)"
-          if [ -n "$dashboard_url" ]; then
-            echo "## SonarQube report" >> "$GITHUB_STEP_SUMMARY"
-            echo "View the analysis: $dashboard_url" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          sudo sysctl -w vm.max_map_count=524288
+          sudo sysctl -w fs.file-max=131072
+          mkdir -p sonar-reports
+          docker run -d --name sonarqube-ci \
+            --publish 127.0.0.1:9000:9000 \
+            --ulimit nofile=131072:131072 \
+            --ulimit nproc=8192:8192 \
+            sonarqube:community
+          for attempt in $(seq 1 90); do
+            if curl --silent --fail --max-time 5 "$SONAR_HOST_URL/api/system/status" | jq -e '.status == "UP"' > /dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::SonarQube did not become ready within the startup timeout."
+          exit 1
 
-      - name: Save SonarQube task details as an artifact
-        if: ${{ always() && hashFiles('.scannerwork/report-task.txt') != '' }}
+      - name: Create temporary credentials and project
+        id: sonar-setup
+        run: |
+          sonar_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$sonar_password"
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -u admin:admin -X POST "$SONAR_HOST_URL/api/users/change_password" \
+            --data-urlencode login=admin \
+            --data-urlencode previousPassword=admin \
+            --data-urlencode "password=$sonar_password"
+          token_response="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            -u "admin:$sonar_password" -X POST "$SONAR_HOST_URL/api/user_tokens/generate" \
+            --data-urlencode name=github-actions)"
+          sonar_token="$(jq -er '.token' <<< "$token_response")"
+          echo "::add-mask::$sonar_token"
+          echo "SONAR_TOKEN=$sonar_token" >> "$GITHUB_ENV"
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -u "$sonar_token:" -X POST "$SONAR_HOST_URL/api/projects/create" \
+            --data-urlencode "project=$SONAR_PROJECT_KEY" \
+            --data-urlencode name=WebTech > /dev/null
+
+      # Only pass Sonar credentials into the scanner container. Each run scans
+      # its checked-out code as a fresh project, without PR/branch auto-detection.
+      - name: Scan code and wait for the quality gate
+        run: |
+          docker run --rm --network host \
+            --user "$(id -u):$(id -g)" \
+            --env SONAR_HOST_URL --env SONAR_TOKEN \
+            --env SONAR_USER_HOME=/tmp/sonar \
+            --volume "$GITHUB_WORKSPACE:/usr/src" \
+            sonarsource/sonar-scanner-cli:latest \
+            "-Dsonar.projectKey=$SONAR_PROJECT_KEY" \
+            -Dsonar.sources=app \
+            -Dsonar.python.version=3.12 \
+            -Dsonar.qualitygate.wait=true \
+            -Dsonar.qualitygate.timeout=300
+
+      - name: Export SonarQube results
+        if: ${{ always() && steps.sonar-setup.outcome == 'success' }}
+        run: |
+          mkdir -p sonar-reports
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -u "$SONAR_TOKEN:" --get "$SONAR_HOST_URL/api/qualitygates/project_status" \
+            --data-urlencode "projectKey=$SONAR_PROJECT_KEY" \
+            --output sonar-reports/quality-gate.json
+          curl --fail-with-body --silent --show-error --max-time 30 \
+            -u "$SONAR_TOKEN:" --get "$SONAR_HOST_URL/api/measures/component" \
+            --data-urlencode "component=$SONAR_PROJECT_KEY" \
+            --data-urlencode metricKeys=bugs,vulnerabilities,code_smells,security_hotspots,coverage,duplicated_lines_density \
+            --output sonar-reports/measures.json
+          # Preserve every page of issues rather than just the first 100.
+          page=1
+          while true; do
+            report="sonar-reports/issues-$page.json"
+            curl --fail-with-body --silent --show-error --max-time 30 \
+              -u "$SONAR_TOKEN:" --get "$SONAR_HOST_URL/api/issues/search" \
+              --data-urlencode "componentKeys=$SONAR_PROJECT_KEY" \
+              --data-urlencode ps=500 --data-urlencode "p=$page" \
+              --output "$report"
+            total="$(jq -er '.paging.total' "$report")"
+            if [ "$((page * 500))" -ge "$total" ]; then break; fi
+            page=$((page + 1))
+          done
+          python3 - <<'PYREPORT'
+          import html
+          import json
+          import os
+          from pathlib import Path
+
+          reports = Path("sonar-reports")
+          def load(name):
+              return json.loads((reports / name).read_text())
+
+          def cell(value):
+              return html.escape(str(value)).replace("|", "&#124;").replace("\r", " ").replace("\n", " ")
+
+          def table(headers, rows):
+              return "\n".join([
+                  "| " + " | ".join(map(cell, headers)) + " |",
+                  "| " + " | ".join("---" for _ in headers) + " |",
+                  *["| " + " | ".join(map(cell, row)) + " |" for row in rows],
+              ])
+
+          gate = load("quality-gate.json")["projectStatus"]
+          measures = {item["metric"]: item.get("value", "N/A")
+                      for item in load("measures.json")["component"]["measures"]}
+          metrics = [
+              ("Bugs", "bugs"), ("Vulnerabilities", "vulnerabilities"),
+              ("Code smells", "code_smells"), ("Security hotspots", "security_hotspots"),
+              ("Coverage (%)", "coverage"), ("Duplicated lines (%)", "duplicated_lines_density"),
+          ]
+          issues = []
+          for path in sorted(reports.glob("issues-*.json")):
+              issues.extend(json.loads(path.read_text()).get("issues", []))
+          rows = [[item.get("severity", "N/A"), item.get("type", "N/A"),
+                   item.get("component", "").removeprefix(os.environ["SONAR_PROJECT_KEY"] + ":"),
+                   item.get("line", "—"), item.get("message", "")]
+                  for item in issues]
+          intro = "## SonarQube analysis\n\n" + table(
+              ["Check", "Result"], [["Quality gate", gate["status"]], ["Issues", len(issues)]])
+          intro += "\n\n### Metrics\n\n" + table(
+              ["Metric", "Value"], [[label, measures.get(key, "N/A")] for label, key in metrics])
+          if gate.get("conditions"):
+              intro += "\n\n### Quality gate conditions\n\n" + table(
+                  ["Metric", "Status", "Actual", "Comparator", "Threshold"],
+                  [[c["metricKey"], c["status"], c.get("actualValue", "N/A"),
+                    c.get("comparator", ""), c.get("errorThreshold", "N/A")]
+                   for c in gate["conditions"]])
+
+          def findings(limit):
+              if not rows:
+                  return "\n\n### Issues\n\nNo issues reported."
+              return "\n\n### Issues\n\n" + table(
+                  ["Severity", "Type", "File", "Line", "Message"], rows[:limit])
+
+          footer = ("\n\nDownload the **sonar-reports** artifact for the complete report and JSON data. "
+                    "The temporary server is removed after this job; no dashboard or history is retained.\n")
+          (reports / "report.md").write_text(intro + findings(len(rows)) + footer)
+          summary = intro + findings(100)
+          if len(rows) > 100:
+              summary += "\n\nShowing the first 100 issues; see report.md in the artifact for all issues."
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+              output.write(summary + footer)
+          PYREPORT
+
+      - name: Collect server logs and discard temporary SonarQube
+        if: ${{ always() }}
+        run: |
+          mkdir -p sonar-reports
+          docker logs sonarqube-ci > sonar-reports/server.log 2>&1 || true
+          docker rm --force --volumes sonarqube-ci
+
+      - name: Save SonarQube reports
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: sonarqube-task-report
-          path: .scannerwork/report-task.txt
+          name: sonar-reports
+          path: sonar-reports/
           retention-days: 7
 
   terraform-checks:
