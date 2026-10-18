@@ -1,12 +1,12 @@
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import DateTime, Integer, String, create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
-
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -36,7 +36,7 @@ class Enquiry(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
 
 
@@ -68,7 +68,7 @@ def health():
 
 
 @app.post("/api/enquiries", status_code=201)
-def create_enquiry(payload: EnquiryCreate, db: Session = Depends(get_db)):
+def create_enquiry(payload: EnquiryCreate, db: Annotated[Session, Depends(get_db)]):
     name = payload.name.strip()
     if len(name) < 2:
         raise HTTPException(status_code=422, detail="Please enter your name.")
@@ -86,7 +86,7 @@ def create_enquiry(payload: EnquiryCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/api/health/db", include_in_schema=False)
-def database_health(db: Session = Depends(get_db)):
+def database_health(db: Annotated[Session, Depends(get_db)]):
     try:
         db.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
