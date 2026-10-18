@@ -73,6 +73,7 @@ jobs:
           import html
           import json
           import os
+          import re
           from pathlib import Path
 
           def cell(value):
@@ -80,28 +81,42 @@ jobs:
 
           report = json.loads(Path("trivy-results.sarif").read_text())
           rows = []
+          blocking = 0
           for run in report.get("runs", []):
+              rules = {rule["id"]: rule for rule in run.get("tool", {}).get("driver", {}).get("rules", [])}
               for result in run.get("results", []):
                   locations = result.get("locations") or [{}]
                   location = locations[0].get("physicalLocation", {})
                   target = location.get("artifactLocation", {}).get("uri", "N/A")
                   line = location.get("region", {}).get("startLine", "—")
                   message = result.get("message", {}).get("text", "")
-                  rows.append([result.get("ruleId", "N/A"), target, line, message])
+                  rule = rules.get(result.get("ruleId"), {})
+                  tags = rule.get("properties", {}).get("tags", [])
+                  severity = next((tag.upper() for tag in tags if tag.upper() in {"UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"}), None)
+                  if severity is None:
+                      match = re.search(r"Severity:\s*(UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL)\b", message)
+                      if not match:
+                          raise ValueError("Cannot determine Trivy finding severity")
+                      severity = match.group(1)
+                  blocking += severity in {"HIGH", "CRITICAL"}
+                  rows.append([severity, result.get("ruleId", "N/A"), target, line, message])
+
+          Path("trivy-gate.json").write_text(json.dumps({"blocking": blocking}))
 
           intro = ("## Trivy security scan\n\n"
                    "| Check | Result |\n| --- | --- |\n"
-                   f"| Scan status | {'PASSED' if not rows else 'FAILED'} |\n"
-                   f"| Findings | {len(rows)} |\n"
-                   "| Severity filter | HIGH, CRITICAL |\n"
+                   f"| Scan status | {'FAILED' if blocking else 'PASSED'} |\n"
+                   f"| Total reported findings | {len(rows)} |\n"
+                   f"| Blocking HIGH/CRITICAL findings | {blocking} |\n"
+                   "| Failure threshold | HIGH, CRITICAL |\n"
                    "| Scanners | Vulnerabilities, misconfigurations, secrets |\n"
                    "| Unfixed vulnerabilities | Excluded |\n\n"
                    "### Findings\n\n")
 
           def table(limit):
               if not rows:
-                  return "No findings matched the scan filters.\n"
-              lines = ["| Rule | File | Line | Finding |", "| --- | --- | --- | --- |"]
+                  return "No findings reported.\n"
+              lines = ["| Severity | Rule | File | Line | Finding |", "| --- | --- | --- | --- | --- |"]
               lines.extend("| " + " | ".join(map(cell, row)) + " |" for row in rows[:limit])
               return "\n".join(lines) + "\n"
 
@@ -129,19 +144,25 @@ jobs:
             trivy-results.sarif
             trivy-report.md
             trivy-report.html
+            trivy-gate.json
           retention-days: 7
 
-      # This second scan makes HIGH or CRITICAL findings fail the job.
+      # Use the same severity counts as the report, rather than rescanning.
       - name: Fail if HIGH or CRITICAL findings exist
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,misconfig,secret
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          format: table
-          exit-code: "1"
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PYGATE'
+          import json
+          from pathlib import Path
+
+          path = Path("trivy-gate.json")
+          if not path.exists():
+              raise SystemExit("::error::Trivy did not produce a valid security gate result.")
+          count = json.loads(path.read_text())["blocking"]
+          if count:
+              raise SystemExit(f"::error::Trivy found {count} HIGH/CRITICAL findings. See the HTML report.")
+          print("Trivy gate passed: no HIGH/CRITICAL findings.")
+          PYGATE
 
   checkov:
     name: Checkov Terraform scan
