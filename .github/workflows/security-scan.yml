@@ -66,7 +66,7 @@ jobs:
           output: trivy-results.sarif
           exit-code: "0"
 
-      - name: Create Trivy table report
+      - name: Create Trivy HTML and table reports
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         run: |
           python3 - <<'PYREPORT'
@@ -90,9 +90,13 @@ jobs:
                   rows.append([result.get("ruleId", "N/A"), target, line, message])
 
           intro = ("## Trivy security scan\n\n"
-                   "Scanners: vulnerabilities, misconfigurations, and secrets. "
-                   "Severity filter: HIGH and CRITICAL; unfixed vulnerabilities excluded.\n\n"
-                   f"**Findings: {len(rows)}**\n\n")
+                   "| Check | Result |\n| --- | --- |\n"
+                   f"| Scan status | {'PASSED' if not rows else 'FAILED'} |\n"
+                   f"| Findings | {len(rows)} |\n"
+                   "| Severity filter | HIGH, CRITICAL |\n"
+                   "| Scanners | Vulnerabilities, misconfigurations, secrets |\n"
+                   "| Unfixed vulnerabilities | Excluded |\n\n"
+                   "### Findings\n\n")
 
           def table(limit):
               if not rows:
@@ -106,7 +110,7 @@ jobs:
               summary.write(intro + table(100))
               if len(rows) > 100:
                   summary.write("\nShowing the first 100 findings.\n")
-              summary.write("\nDownload the **trivy-sarif-report** artifact for the complete table and SARIF data.\n")
+              summary.write("\nDownload and extract the **trivy-sarif-report** artifact, then open **trivy-report.html** in your browser for the colourful report. Markdown and SARIF data are also included.\n")
           PYREPORT
           python3 .github/scripts/render_report.py trivy-report.md
 
@@ -116,7 +120,7 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-      - name: Save Trivy report as an artifact
+      - name: Save Trivy HTML, Markdown and SARIF reports
         if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         uses: actions/upload-artifact@v7
         with:
