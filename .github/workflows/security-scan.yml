@@ -49,7 +49,7 @@ jobs:
 
       # Create a SARIF report so findings can appear in GitHub code scanning.
       - name: Scan and create SARIF report
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -76,7 +76,7 @@ jobs:
 
       # This second scan makes HIGH or CRITICAL findings fail the job.
       - name: Fail if HIGH or CRITICAL findings exist
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
