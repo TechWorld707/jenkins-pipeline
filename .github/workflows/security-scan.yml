@@ -1,0 +1,276 @@
+name: WebTech CI and security scans
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app-lint:
+    name: Lint application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff
+        run: python -m pip install ruff
+
+      - name: Lint Python backend
+        run: ruff check app/backend
+
+      - name: Check Python syntax
+        run: python -m compileall -q app/backend
+
+      - name: Check Docker Compose configuration
+        run: docker compose -f app/docker-compose.yml config --quiet
+
+  trivy:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # Create a SARIF report so findings can appear in GitHub code scanning.
+      - name: Scan and create SARIF report
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-results.sarif
+          exit-code: "0"
+
+      - name: Upload Trivy findings to GitHub code scanning
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Save Trivy report as an artifact
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-sarif-report
+          path: trivy-results.sarif
+          retention-days: 7
+
+      # This second scan makes HIGH or CRITICAL findings fail the job.
+      - name: Fail if HIGH or CRITICAL findings exist
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          exit-code: "1"
+
+  checkov:
+    name: Checkov Terraform scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      # hashFiles belongs on a step, after the repository has been checked out.
+      - name: Scan Terraform files with Checkov
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: infra/terraform
+          output_format: cli,sarif
+          output_file_path: console,checkov-results.sarif
+
+      - name: Upload Checkov findings to GitHub code scanning
+        if: ${{ always() && hashFiles('checkov-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: checkov-results.sarif
+
+      - name: Save Checkov report as an artifact
+        if: ${{ always() && hashFiles('checkov-results.sarif') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: checkov-sarif-report
+          path: checkov-results.sarif
+          retention-days: 7
+
+      - name: Explain why Checkov was skipped
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
+        run: echo "Checkov was skipped because infra/terraform does not contain Terraform files yet."
+
+  sonarqube:
+    name: SonarQube analysis
+    runs-on: ubuntu-latest
+    # Set the SONAR_ENABLED repository variable to true when SonarQube is ready.
+    if: ${{ vars.SONAR_ENABLED == 'true' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Scan with SonarQube
+        uses: SonarSource/sonarqube-scan-action@v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+            -Dsonar.sources=app
+
+      - name: Add SonarQube report link to the workflow summary
+        if: ${{ always() && hashFiles('.scannerwork/report-task.txt') != '' }}
+        run: |
+          dashboard_url="$(sed -n 's/^dashboardUrl=//p' .scannerwork/report-task.txt)"
+          if [ -n "$dashboard_url" ]; then
+            echo "## SonarQube report" >> "$GITHUB_STEP_SUMMARY"
+            echo "View the analysis: $dashboard_url" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Save SonarQube task details as an artifact
+        if: ${{ always() && hashFiles('.scannerwork/report-task.txt') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: sonarqube-task-report
+          path: .scannerwork/report-task.txt
+          retention-days: 7
+
+  terraform-checks:
+    name: Terraform format, validate and TFLint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Set up TFLint
+        uses: terraform-linters/setup-tflint@v6
+
+      - name: Check Terraform formatting
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: Initialise Terraform without the remote backend
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: terraform -chdir=infra/terraform init -backend=false -input=false
+
+      - name: Validate Terraform configuration
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: terraform -chdir=infra/terraform validate
+
+      - name: Initialise TFLint
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: tflint --chdir=infra/terraform --init
+
+      - name: Run TFLint and create SARIF report
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: tflint --chdir=infra/terraform --format=sarif > tflint-results.sarif
+
+      - name: Upload TFLint findings to GitHub code scanning
+        if: ${{ always() && hashFiles('tflint-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: tflint-results.sarif
+
+      - name: Save TFLint report as an artifact
+        if: ${{ always() && hashFiles('tflint-results.sarif') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: tflint-sarif-report
+          path: tflint-results.sarif
+          retention-days: 7
+
+      - name: Explain why Terraform checks were skipped
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
+        run: echo "Terraform checks were skipped because infra/terraform does not contain Terraform files yet."
+
+  terraform-plan:
+    name: Terraform plan
+    runs-on: ubuntu-latest
+    # Plans run on main pushes or manual runs, once enabled in repository variables.
+    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials with GitHub OIDC
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Initialise Terraform
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: terraform -chdir=infra/terraform init -input=false
+
+      - name: Create Terraform plan
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: terraform -chdir=infra/terraform plan -input=false -no-color -out=tfplan
+
+      - name: Create readable plan report
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
+        run: terraform -chdir=infra/terraform show -no-color tfplan > terraform-plan.txt
+
+      - name: Display plan report in the workflow summary
+        if: ${{ always() && hashFiles('terraform-plan.txt') != '' }}
+        run: |
+          echo "## Terraform plan report" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          cat terraform-plan.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save plan report as an artifact
+        if: ${{ always() && hashFiles('terraform-plan.txt') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: terraform-plan-report
+          path: terraform-plan.txt
+          retention-days: 1
+
+      - name: Explain why Terraform plan was skipped
+        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
+        run: echo "Terraform plan was skipped because infra/terraform does not contain Terraform files yet."
