@@ -1,0 +1,28 @@
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Terraform local files and sensitive data
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform-plan.txt
+*.tfvars
+*.tfvars.json
+crash.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Local build and tool output
+*.log
+.DS_Store
+Thumbs.db
