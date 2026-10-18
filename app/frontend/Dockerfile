@@ -1,4 +1,5 @@
-FROM nginx:alpine
+FROM nginxinc/nginx-unprivileged:alpine
 COPY index.html /usr/share/nginx/html/index.html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+USER nginx
+EXPOSE 8080
