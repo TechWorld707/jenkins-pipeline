@@ -232,6 +232,8 @@ jobs:
       # its checked-out code as a fresh project, without PR/branch auto-detection.
       - name: Scan code and wait for the quality gate
         run: |
+          set -o pipefail
+          mkdir -p sonar-reports
           docker run --rm --network host \
             --user "$(id -u):$(id -g)" \
             --env SONAR_HOST_URL --env SONAR_TOKEN \
@@ -240,9 +242,11 @@ jobs:
             sonarsource/sonar-scanner-cli:latest \
             "-Dsonar.projectKey=$SONAR_PROJECT_KEY" \
             -Dsonar.sources=app \
+            -Dsonar.working.directory=/tmp/sonar-work \
             -Dsonar.python.version=3.12 \
             -Dsonar.qualitygate.wait=true \
-            -Dsonar.qualitygate.timeout=300
+            -Dsonar.qualitygate.timeout=300 \
+            2>&1 | tee sonar-reports/scanner.log
 
       - name: Export SonarQube results
         if: ${{ always() && steps.sonar-setup.outcome == 'success' }}
