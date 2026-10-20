@@ -20,6 +20,7 @@ locals {
 }
 
 resource "aws_s3_bucket" "terraform_state" {
+  # checkov:skip=CKV_AWS_144:Single-region backend; cross-region recovery requires a separately designed replica and KMS permissions.
   bucket        = local.state_bucket_name
   force_destroy = false
 
@@ -46,8 +47,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "terraform_state" 
   bucket = aws_s3_bucket.terraform_state.id
 
   rule {
+    bucket_key_enabled = true
+
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.terraform_state.arn
     }
   }
 }
@@ -72,4 +76,44 @@ resource "aws_s3_bucket_ownership_controls" "terraform_state" {
 output "state_bucket_name" {
   description = "S3 bucket for Terraform remote state"
   value       = aws_s3_bucket.terraform_state.bucket
+}
+
+resource "aws_kms_key" "terraform_state" {
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AccountAdministration"
+      Effect    = "Allow"
+      Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+      Action    = "kms:*"
+      Resource  = "*"
+    }]
+  })
+
+  description             = "Encrypt Terraform remote state"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "terraform_state" {
+  bucket = aws_s3_bucket.terraform_state.id
+
+  rule {
+    id     = "abort-incomplete-uploads"
+    status = "Enabled"
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+}
+
+resource "aws_s3_bucket_notification" "terraform_state" {
+  bucket      = aws_s3_bucket.terraform_state.id
+  eventbridge = true
 }

@@ -1,12 +1,13 @@
 resource "aws_security_group" "alb" {
+  # checkov:skip=CKV2_AWS_5:Network foundation only; attach this group when the load balancer is added.
   name        = "jenkins-pipeline-alb-sg"
-  description = "Allow public HTTP traffic to the load balancer"
+  description = "Allow public HTTPS traffic to the load balancer"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP from the internet"
-    from_port   = 80
-    to_port     = 80
+    description = "HTTPS from the internet"
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -25,6 +26,7 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_security_group" "frontend" {
+  # checkov:skip=CKV2_AWS_5:Network foundation only; attach this group when the frontend service is added.
   name        = "jenkins-pipeline-frontend-sg"
   description = "Allow traffic from the load balancer to the frontend"
   vpc_id      = aws_vpc.main.id
@@ -51,6 +53,7 @@ resource "aws_security_group" "frontend" {
 }
 
 resource "aws_security_group" "backend" {
+  # checkov:skip=CKV2_AWS_5:Network foundation only; attach this group when the backend service is added.
   name        = "jenkins-pipeline-backend-sg"
   description = "Allow API traffic from the frontend to the backend"
   vpc_id      = aws_vpc.main.id
@@ -77,6 +80,7 @@ resource "aws_security_group" "backend" {
 }
 
 resource "aws_security_group" "database" {
+  # checkov:skip=CKV2_AWS_5:Network foundation only; attach this group when the database is added.
   name        = "jenkins-pipeline-database-sg"
   description = "Allow PostgreSQL traffic only from the backend"
   vpc_id      = aws_vpc.main.id

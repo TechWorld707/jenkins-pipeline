@@ -1,5 +1,10 @@
 data "aws_availability_zones" "available" {
   state = "available"
+
+  filter {
+    name   = "zone-name"
+    values = ["eu-west-2a", "eu-west-2b"]
+  }
 }
 
 locals {
@@ -29,7 +34,7 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   availability_zone       = local.azs[count.index]
   cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
-  map_public_ip_on_launch = true
+  map_public_ip_on_launch = false
 
   tags = {
     Name = "jenkins-pipeline-public-${local.azs[count.index]}"
@@ -98,4 +103,15 @@ resource "aws_route_table_association" "data" {
   count          = 2
   subnet_id      = aws_subnet.data[count.index].id
   route_table_id = aws_route_table.private.id
+}
+
+resource "aws_default_security_group" "main" {
+  vpc_id = aws_vpc.main.id
+
+  ingress = []
+  egress  = []
+
+  tags = {
+    Name = "jenkins-pipeline-default-deny"
+  }
 }
