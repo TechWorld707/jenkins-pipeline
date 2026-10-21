@@ -439,8 +439,11 @@ jobs:
   terraform-plan:
     name: Terraform plan
     runs-on: ubuntu-latest
-    # Plans run on main pushes or manual runs, once enabled in repository variables.
-    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    needs: [app-lint, trivy, checkov, sonarqube, terraform-checks]
+    # Fork PRs never receive AWS credentials. Same-repository PRs use the plan role.
+    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
     permissions:
       contents: read
       id-token: write
@@ -459,15 +462,23 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.AWS_REGION }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
 
       - name: Initialise Terraform
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: terraform -chdir=infra/terraform init -input=false
 
       - name: Create Terraform plan
+        id: plan
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform plan -input=false -no-color -out=tfplan
+        run: |
+          set +e
+          terraform -chdir=infra/terraform plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
+          status=$?
+          set -e
+          if [ "$status" -eq 1 ]; then exit 1; fi
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then exit "$status"; fi
+          echo "changes=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Create readable plan report
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
@@ -486,9 +497,66 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: terraform-plan-report
-          path: terraform-plan.txt
+          path: |
+            terraform-plan.txt
+            infra/terraform/tfplan
           retention-days: 1
 
       - name: Explain why Terraform plan was skipped
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
         run: echo "Terraform plan was skipped because infra/terraform does not contain Terraform files yet."
+
+  terraform-apply:
+    name: Approve and apply Terraform
+    needs: terraform-plan
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.terraform-plan.outputs.changes == 'true' }}
+    runs-on: ubuntu-latest
+    # Required reviewers MUST be configured in GitHub Settings > Environments.
+    environment: terraform-production
+    concurrency:
+      group: terraform-production-apply
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out the planned commit
+        uses: actions/checkout@v7
+
+      - name: Reject a superseded main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$current_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Main has changed. Review and approve the latest workflow plan instead."
+            exit 1
+          fi
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: Download the reviewed plan from this workflow run
+        uses: actions/download-artifact@v8
+        with:
+          name: terraform-plan-report
+          path: reviewed-plan
+
+      - name: Configure approved AWS apply credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          # Store this secret ONLY in the protected terraform-production environment.
+          role-to-assume: ${{ secrets.AWS_APPLY_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+
+      - name: Initialise Terraform with locked provider versions
+        run: terraform -chdir=infra/terraform init -input=false -lockfile=readonly
+
+      - name: Apply the saved reviewed plan
+        run: terraform -chdir=infra/terraform apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/infra/terraform/tfplan"
+
+      - name: Record deployment result
+        run: echo "Terraform applied the reviewed plan for commit $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
