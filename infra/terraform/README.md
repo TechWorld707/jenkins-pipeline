@@ -33,6 +33,11 @@ settings in the application stack. New KMS keys and log storage incur AWS charge
   requires SSE-S3 on the destination, per the
   [AWS documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html).
 
+Trivy has the same resource-scoped exception for AVD-AWS-0132 on the access-log
+bucket's encryption configuration in `bootstrap/logging.tf`. SSE-S3 remains
+enabled; the state bucket continues to use its customer-managed KMS key. The
+HIGH/CRITICAL scan gate remains enabled for all other findings.
+
 EventBridge forwarding is enabled; add rules and consumers for any desired
 alerting or automated responses.
 

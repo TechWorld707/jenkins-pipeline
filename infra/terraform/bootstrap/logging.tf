@@ -25,6 +25,9 @@ resource "aws_s3_bucket_ownership_controls" "access_logs" {
   }
 }
 
+# S3 server access-log destinations require SSE-S3; SSE-KMS is unsupported.
+# https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "access_logs" {
   bucket = aws_s3_bucket.access_logs.id
   rule {
