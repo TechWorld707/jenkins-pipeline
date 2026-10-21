@@ -1,6 +1,6 @@
 resource "aws_security_group" "alb" {
   # checkov:skip=CKV2_AWS_5:Network foundation only; attach this group when the load balancer is added.
-  name        = "jenkins-pipeline-alb-sg"
+  name = "jenkins-pipeline-alb-sg"
   # AWS cannot change this description in place; preserve it to retain the group ID.
   description = "Allow public HTTP traffic to the load balancer"
   vpc_id      = aws_vpc.main.id
