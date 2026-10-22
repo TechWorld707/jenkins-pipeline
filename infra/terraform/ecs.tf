@@ -1,6 +1,11 @@
 resource "aws_ecs_cluster" "main" {
   name = "webtech-technologies"
 
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
   tags = {
     Name = "webtech-technologies"
   }
