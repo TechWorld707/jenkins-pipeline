@@ -6,9 +6,11 @@ records all VPC flows in a KMS-encrypted CloudWatch log group for 365 days.
 Before changing the pinned zones in an existing deployment, review the plan for
 subnet replacement.
 
-The load-balancer security group accepts HTTPS on port 443. When adding the
-load balancer, configure an HTTPS listener with an ACM certificate; its frontend
-targets can continue to use HTTP on port 80 inside the VPC.
+The learning environment exposes the ALB over HTTP on port 80 using its AWS DNS
+name, without a domain or ACM certificate. It forwards HTTP to private frontend
+targets on port 8080. Resource-scoped Trivy and Checkov exceptions document this
+intentional setup; use test data only. Enable HTTPS with a certificate before
+using real credentials or sensitive data.
 
 The bootstrap stack enables state-bucket access logging, EventBridge notifications,
 a lifecycle rule to abort incomplete multipart uploads, and KMS encryption with
