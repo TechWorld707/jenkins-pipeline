@@ -176,3 +176,19 @@ and use, RDS parameter groups, monitoring-role creation/attachment, and PassRole
 limited to the RDS monitoring role. Permissions must be reviewed before the next
 apply; this change does not install IAM policies or apply infrastructure. Logging,
 monitoring, and KMS incur AWS usage charges.
+
+
+## GitHub apply permissions
+
+The apply role retains inline policy `TerraformApplyStackAccess` (the base
+`iam/github-terraform-apply-policy.json`) and now has three supplemental managed
+policies: `GitHubTerraformApplyRdsAccess`, `GitHubTerraformApplyEdgeAccess`, and
+`GitHubTerraformApplyLoggingAccess`. Their source JSON files are in `iam/`.
+They cover the RDS instance/subnet group, project ALB/listeners, CloudFront,
+WAF and its log delivery, the ALB log bucket, and application logging key.
+The KMS key must carry `Project=webtech-application-logs`; key management is
+restricted by that tag. Commit the application-logging.tf tag before retrying.
+CloudFront creates use wildcard resources where resource IDs do not yet exist;
+updates use account-specific resource ARNs. Policies are split to respect IAM
+policy size limits. These permissions were installed in AWS separately from
+Terraform; changing JSON files alone does not update AWS IAM.
