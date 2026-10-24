@@ -6,11 +6,39 @@ records all VPC flows in a KMS-encrypted CloudWatch log group for 365 days.
 Before changing the pinned zones in an existing deployment, review the plan for
 subnet replacement.
 
-The learning environment exposes the ALB over HTTP on port 80 using its AWS DNS
-name, without a domain or ACM certificate. It forwards HTTP to private frontend
-targets on port 8080. Resource-scoped Trivy and Checkov exceptions document this
-intentional setup; use test data only. Enable HTTPS with a certificate before
-using real credentials or sensitive data.
+CloudFront is the public website entry point, using its default HTTPS domain.
+HTTP viewer requests redirect to HTTPS. AWS WAF on CloudFront uses the AWS Common,
+Known Bad Inputs, and Amazon IP Reputation managed rule groups. WAF has ongoing
+charges; CloudFront uses PriceClass_100. Caching is disabled to avoid caching API
+responses or user sessions; query strings, headers, and cookies reach the origin.
+
+The ALB is an internet-facing origin on HTTP port 80, restricted to the CloudFront
+origin-facing managed prefix list. Its default response is 403; a listener rule
+forwards only requests with the shared X-Origin-Verify header. CloudFront-to-ALB
+traffic remains unencrypted for this learning setup. Frontend targets use port
+8080. The ALB WAF exception now documents upstream protection, not omitted WAF.
+
+Before planning in GitHub, create repository Actions secret
+`CLOUDFRONT_ORIGIN_TOKEN` with a random 32-128 character value consisting of letters,
+digits, underscores, or hyphens (for example, generate with `openssl rand -hex 32`).
+For local plans supply it as `TF_VAR_cloudfront_origin_token`. Do not commit it.
+Terraform stores this value in state and saved plans; sensitive marking only
+redacts normal CLI output. Rotate the value in both origin and listener via Terraform.
+
+The plan role needs CloudFront/WAF read permissions and
+`ec2:DescribeManagedPrefixLists`. The apply role also needs CloudFront distribution
+management/tagging, WAFv2 Web ACL management/tagging and association permissions,
+and ALB listener-rule management. CloudFront-scoped WAF uses the aliased AWS
+provider in us-east-1; policies restricted to eu-west-2 must account for this.
+These AWS IAM permissions have not been installed by this change.
+
+After deployment, `terraform output -raw frontend_url` gives the website address.
+Verify normal pages/API requests through CloudFront and that direct ALB requests
+are denied. AWS managed rules may block legitimate application inputs; review WAF
+metrics and sampled requests before adjusting rules. CloudFront access-log storage
+and a second origin for failover are deferred and documented with scoped scan
+exceptions. A custom domain and origin certificate are needed to enable origin
+HTTPS; the default CloudFront viewer certificate does not encrypt the origin hop.
 
 The bootstrap stack enables state-bucket access logging, EventBridge notifications,
 a lifecycle rule to abort incomplete multipart uploads, and KMS encryption with

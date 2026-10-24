@@ -470,6 +470,8 @@ jobs:
 
       - name: Create Terraform plan
         id: plan
+        env:
+          TF_VAR_cloudfront_origin_token: ${{ secrets.CLOUDFRONT_ORIGIN_TOKEN }}
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
           set +e
