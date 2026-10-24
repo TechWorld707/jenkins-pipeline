@@ -30,6 +30,13 @@ data "aws_iam_policy_document" "codebuild_image_builder" {
   }
 
   statement {
+    sid       = "UploadPassingReports"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.alb_logs.arn}/reports/*"]
+  }
+
+  statement {
     sid       = "GetECRLoginToken"
     effect    = "Allow"
     actions   = ["ecr:GetAuthorizationToken"]
@@ -41,6 +48,7 @@ data "aws_iam_policy_document" "codebuild_image_builder" {
     effect = "Allow"
 
     actions = [
+      "ecr:DescribeImages",
       "ecr:BatchCheckLayerAvailability",
       "ecr:CompleteLayerUpload",
       "ecr:InitiateLayerUpload",
@@ -80,6 +88,16 @@ resource "aws_codebuild_project" "image_builder" {
     privileged_mode             = true
 
     environment_variable {
+      name  = "AWS_ACCOUNT_ID"
+      value = data.aws_caller_identity.current.account_id
+    }
+
+    environment_variable {
+      name  = "SCAN_REPORT_BUCKET"
+      value = aws_s3_bucket.alb_logs.id
+    }
+
+    environment_variable {
       name  = "FRONTEND_ECR_REPOSITORY"
       value = aws_ecr_repository.app["frontend"].name
     }
@@ -98,6 +116,8 @@ resource "aws_codebuild_project" "image_builder" {
   }
 
   source_version = "main"
+
+  depends_on = [aws_iam_role_policy.codebuild_image_builder]
 
   logs_config {
     cloudwatch_logs {
