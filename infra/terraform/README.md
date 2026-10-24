@@ -194,3 +194,11 @@ CloudFront creates use wildcard resources where resource IDs do not yet exist;
 updates use account-specific resource ARNs. Policies are split to respect IAM
 policy size limits. These permissions were installed in AWS separately from
 Terraform; changing JSON files alone does not update AWS IAM.
+
+CodeBuild image-builder logs use the application customer-managed KMS key and
+365-day retention. The key policy allows CloudWatch Logs encryption only for the
+configured RDS log groups and the exact CodeBuild log group. CKV_AWS_316 is scoped
+to this project because buildspec.yml runs Docker builds and Trivy containers
+through the Docker daemon. Only trusted source and buildspec changes should run
+with this privileged build role. The logging key policy and log group must be
+applied before expecting encrypted build logs. Retention can increase storage costs.

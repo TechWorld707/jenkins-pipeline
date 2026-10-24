@@ -1,0 +1,61 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - |
+        set -euo pipefail
+
+        if [ -z "${CODEBUILD_RESOLVED_SOURCE_VERSION:-}" ]; then
+          echo "No source commit SHA was provided."
+          exit 1
+        fi
+
+        IMAGE_TAG="$CODEBUILD_RESOLVED_SOURCE_VERSION"
+        ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+
+        echo "Building commit: ${IMAGE_TAG}"
+        aws ecr get-login-password --region "$AWS_DEFAULT_REGION" \
+          | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+  build:
+    on-failure: ABORT
+    commands:
+      - |
+        set -euo pipefail
+
+        IMAGE_TAG="$CODEBUILD_RESOLVED_SOURCE_VERSION"
+        ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com"
+
+        FRONTEND_IMAGE="${ECR_REGISTRY}/${FRONTEND_ECR_REPOSITORY}:${IMAGE_TAG}"
+        BACKEND_IMAGE="${ECR_REGISTRY}/${BACKEND_ECR_REPOSITORY}:${IMAGE_TAG}"
+
+        echo "Building frontend image..."
+        docker build \
+          -f app/frontend/Dockerfile \
+          -t "$FRONTEND_IMAGE" \
+          app/frontend
+
+        echo "Building backend image..."
+        docker build \
+          -f app/backend/Dockerfile \
+          -t "$BACKEND_IMAGE" \
+          app/backend
+
+        echo "Scanning frontend image..."
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v trivy-cache:/root/.cache/ \
+          aquasec/trivy:0.76.1 \
+          image --exit-code 1 --severity HIGH,CRITICAL "$FRONTEND_IMAGE"
+
+        echo "Scanning backend image..."
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v trivy-cache:/root/.cache/ \
+          aquasec/trivy:0.76.1 \
+          image --exit-code 1 --severity HIGH,CRITICAL "$BACKEND_IMAGE"
+
+        echo "Both scans passed. Pushing images to ECR..."
+        docker push "$FRONTEND_IMAGE"
+        docker push "$BACKEND_IMAGE"
