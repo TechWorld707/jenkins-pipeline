@@ -134,3 +134,45 @@ Plan artifacts can contain sensitive state values even when the text report
 redacts them. Limit repository/Actions access and retain artifacts for one day.
 GitHub report upload and AWS OIDC/apply require an actual configured workflow run
 for end-to-end verification.
+
+## Logging and scan corrections
+
+ALB access logs go to a private, versioned SSE-S3 bucket with 30-day retention.
+SSE-S3 is required for ALB log delivery. Resource-scoped exceptions document the
+terminal log bucket's lack of recursive access logging, customer-managed KMS,
+and cross-region replication. EventBridge notifications are enabled without
+consumers. ALB and RDS deletion protection must be disabled in a reviewed apply
+before destroying them; the log bucket must also be emptied of versions before
+removal.
+
+WAF uses explicit managed rule blocks, including Known Bad Inputs and Anonymous
+IP List, so Checkov can verify the protections. Anonymous IP List can block VPN,
+proxy, or hosting-provider traffic. WAF request logs go to CloudWatch in us-east-1
+with 365-day retention; authorization, cookie, and origin-verification headers
+are redacted in those logs. Sampled requests are separate and are not covered by
+logging redaction. WAF logs use CloudWatch service encryption with a documented
+customer-key exception. CloudFront sets index.html as its default root object
+and attaches security response headers. The ALB redirect exception reflects
+HTTPS termination at CloudFront, and the geography exception intentionally allows
+worldwide viewers. The default CloudFront certificate remains intentional.
+
+The new learning RDS instance is pinned to PostgreSQL 18.3 with a postgres18
+parameter group. AWS's orderable-instance API confirmed Performance Insights,
+enhanced monitoring, and IAM authentication support for db.t3.micro in eu-west-2.
+Multi-AZ is enabled for failover practice, with seven-day automated backup
+retention for point-in-time recovery. Restore creates a separate database instance;
+it does not rewind the existing database. Final snapshots remain disabled. Performance Insights
+uses a customer-managed KMS key and seven-day retention; enhanced monitoring runs
+at 60-second intervals. PostgreSQL and upgrade logs are exported to KMS-encrypted
+CloudWatch groups with 365-day retention. Query logging records all statements;
+it can capture sensitive SQL values, so use test data and review log volume.
+The parameter group explicitly requires SSL. Application database connections
+must support TLS (prefer sslmode=verify-full with the RDS CA bundle). Enabling IAM
+authentication does not replace password authentication automatically.
+
+These resources require additional deployment-role permissions for S3 logging
+configuration, WAF logging/CloudWatch log delivery in us-east-1, KMS key creation
+and use, RDS parameter groups, monitoring-role creation/attachment, and PassRole
+limited to the RDS monitoring role. Permissions must be reviewed before the next
+apply; this change does not install IAM policies or apply infrastructure. Logging,
+monitoring, and KMS incur AWS usage charges.

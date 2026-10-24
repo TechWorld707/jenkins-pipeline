@@ -1,6 +1,7 @@
 # Internet-facing CloudFront origin; ingress is limited to CloudFront.
 # trivy:ignore:AVD-AWS-0053
 resource "aws_lb" "frontend" {
+  # checkov:skip=CKV2_AWS_20:CloudFront redirects viewers to HTTPS; this restricted learning origin intentionally uses HTTP.
   # checkov:skip=CKV2_AWS_28:WAF is attached to CloudFront; the ALB requires CloudFront source IPs and a shared origin header.
   name               = "webtech-frontend-alb"
   internal           = false
@@ -8,8 +9,16 @@ resource "aws_lb" "frontend" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = aws_subnet.public[*].id
 
-  enable_deletion_protection = false
+  enable_deletion_protection = true
   drop_invalid_header_fields = true
+
+  access_logs {
+    bucket  = aws_s3_bucket.alb_logs.id
+    prefix  = "alb"
+    enabled = true
+  }
+
+  depends_on = [aws_s3_bucket_policy.alb_logs]
 
   tags = {
     Name = "webtech-frontend-alb"
