@@ -17,7 +17,8 @@ resource "aws_iam_role" "codebuild_image_builder" {
 
 resource "aws_cloudwatch_log_group" "codebuild_image_builder" {
   name              = "/aws/codebuild/webtech-image-builder"
-  retention_in_days = 14
+  retention_in_days = 365
+  kms_key_id        = aws_kms_key.application_logs.arn
 }
 
 data "aws_iam_policy_document" "codebuild_image_builder" {
@@ -61,6 +62,7 @@ resource "aws_iam_role_policy" "codebuild_image_builder" {
 }
 
 resource "aws_codebuild_project" "image_builder" {
+  # checkov:skip=CKV_AWS_316:Docker builds and Trivy container scans require Docker daemon access; privileged mode is limited to this image-builder project.
   name          = "webtech-image-builder"
   description   = "Builds, scans, and pushes WebTech frontend and backend images"
   service_role  = aws_iam_role.codebuild_image_builder.arn
