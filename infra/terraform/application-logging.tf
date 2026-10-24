@@ -75,7 +75,10 @@ resource "aws_s3_bucket_policy" "alb_logs" {
 }
 
 resource "aws_kms_key" "application_logs" {
+<<<<<<< HEAD
   tags                    = { Project = "webtech-application-logs" }
+=======
+>>>>>>> origin/main
   description             = "Encrypt RDS logs"
   enable_key_rotation     = true
   deletion_window_in_days = 30

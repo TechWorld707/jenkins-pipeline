@@ -176,6 +176,7 @@ and use, RDS parameter groups, monitoring-role creation/attachment, and PassRole
 limited to the RDS monitoring role. Permissions must be reviewed before the next
 apply; this change does not install IAM policies or apply infrastructure. Logging,
 monitoring, and KMS incur AWS usage charges.
+<<<<<<< HEAD
 
 
 ## GitHub apply permissions
@@ -192,3 +193,5 @@ CloudFront creates use wildcard resources where resource IDs do not yet exist;
 updates use account-specific resource ARNs. Policies are split to respect IAM
 policy size limits. These permissions were installed in AWS separately from
 Terraform; changing JSON files alone does not update AWS IAM.
+=======
+>>>>>>> origin/main
