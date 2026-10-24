@@ -339,12 +339,7 @@
       "Sid": "PassRdsMonitoringRole",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::671662643382:role/webtech-rds-monitoring",
-      "Condition": {
-        "StringEquals": {
-          "iam:PassedToService": "monitoring.rds.amazonaws.com"
-        }
-      }
+      "Resource": "arn:aws:iam::671662643382:role/webtech-rds-monitoring"
     },
     {
       "Sid": "ManagePostgresParameterGroups",
