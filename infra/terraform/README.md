@@ -52,6 +52,8 @@ checkov -d infra/terraform --framework terraform
 
 ## GitHub plan review and approved apply
 
+For console instructions, follow the [AWS role and GitHub setup guide](GITHUB_AWS_ROLE_SETUP.md).
+
 The workflow plans `infra/terraform` after all CI checks pass. It runs on trusted
 same-repository pull requests, main pushes, and manual runs. Fork pull requests
 do not receive AWS credentials. The separate `bootstrap` stack is not applied
