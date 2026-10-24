@@ -28,7 +28,7 @@ resource "aws_db_instance" "postgres" {
   multi_az               = true
 
   storage_encrypted          = true
-  backup_retention_period    = 7
+  backup_retention_period    = 1
   auto_minor_version_upgrade = true
 
   skip_final_snapshot                   = true

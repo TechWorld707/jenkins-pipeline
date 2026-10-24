@@ -159,8 +159,10 @@ worldwide viewers. The default CloudFront certificate remains intentional.
 The new learning RDS instance is pinned to PostgreSQL 18.3 with a postgres18
 parameter group. AWS's orderable-instance API confirmed Performance Insights,
 enhanced monitoring, and IAM authentication support for db.t3.micro in eu-west-2.
-Multi-AZ is enabled for failover practice, with seven-day automated backup
-retention for point-in-time recovery. Restore creates a separate database instance;
+Multi-AZ is enabled for failover practice, with one-day automated backup
+retention for point-in-time recovery. Seven-day retention was rejected by the
+account Free plan; one day is the minimum nonzero setting and still needs AWS
+deployment verification for this account. Restore creates a separate database instance;
 it does not rewind the existing database. Final snapshots remain disabled. Performance Insights
 uses a customer-managed KMS key and seven-day retention; enhanced monitoring runs
 at 60-second intervals. PostgreSQL and upgrade logs are exported to KMS-encrypted
