@@ -1,3 +1,12 @@
+variable "alb_certificate_arn" {
+  description = "ACM certificate ARN in eu-west-2 for the ALB origin domain"
+  type        = string
+}
+
+data "aws_ec2_managed_prefix_list" "cloudfront_origin_facing" {
+  name = "com.amazonaws.global.cloudfront.origin-facing"
+}
+
 resource "aws_lb" "frontend" {
   name               = "webtech-frontend-alb"
   internal           = false
@@ -34,10 +43,12 @@ resource "aws_lb_target_group" "frontend" {
   }
 }
 
-resource "aws_lb_listener" "http" {
+resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.frontend.arn
-  port              = 80
-  protocol          = "HTTP"
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = var.alb_certificate_arn
 
   default_action {
     type             = "forward"
@@ -45,6 +56,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-output "application_url" {
-  value = "http://${aws_lb.frontend.dns_name}"
+output "alb_origin_dns_name" {
+  description = "ALB DNS name to point the CloudFront origin domain at"
+  value       = aws_lb.frontend.dns_name
 }
