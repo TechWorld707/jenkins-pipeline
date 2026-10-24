@@ -132,6 +132,12 @@
           "aws:RequestTag/Project": "webtech-application-logs"
         }
       }
+    },
+    {
+      "Sid": "DescribeSecretsManagerKey",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "arn:aws:kms:eu-west-2:671662643382:key/af56176c-602a-423a-8344-62609ed47642"
     }
   ]
 }
