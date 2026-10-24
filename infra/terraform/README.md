@@ -202,3 +202,12 @@ to this project because buildspec.yml runs Docker builds and Trivy containers
 through the Docker daemon. Only trusted source and buildspec changes should run
 with this privileged build role. The logging key policy and log group must be
 applied before expecting encrypted build logs. Retention can increase storage costs.
+
+The supplemental managed policy `GitHubTerraformApplyCodebuildAccess` is attached
+to `GitHubTerraformApplyRole`; its source is
+`iam/github-terraform-apply-codebuild-policy.json`. It permits Terraform to manage
+only the webtech-image-builder CodeBuild project, its exact log group, and the
+webtech-codebuild-image-builder service role and inline policy. PassRole is
+restricted to that role and codebuild.amazonaws.com. This does not grant the
+apply role permission to start builds or change CodeBuild source credentials.
+JSON changes require a separate IAM policy update to take effect in AWS.
