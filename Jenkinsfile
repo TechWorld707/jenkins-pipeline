@@ -10,6 +10,7 @@ pipeline {
   }
   parameters {
     string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-shared-image-builder')
+    string(name: 'AWS_CREDENTIALS_ID', defaultValue: 'jenkins-aws', description: 'Jenkins AWS credential ID')
     string(name: 'REPORT_BUCKET', defaultValue: 'webtech-shared-reports-671662643382')
     string(name: 'STAGING_CLUSTER', defaultValue: 'webtech-staging')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: 'webtech-staging-frontend')
@@ -36,7 +37,10 @@ pipeline {
     stage('CodeBuild: build, scan, publish') {
       when { branch 'main' }
       steps {
-        sh 'python3 ci/jenkins-release.py build'
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: (params.AWS_CREDENTIALS_ID ?: 'jenkins-aws')]]) {
+          sh 'aws sts get-caller-identity'
+          sh 'python3 ci/jenkins-release.py build'
+        }
         // Publish scan evidence before waiting for approval.
         archiveArtifacts artifacts: 'codebuild-id.txt,release.json,reports/*.html,reports/*.json'
       }
@@ -79,7 +83,10 @@ ${release}
       when { branch 'main' }
       steps {
         script { env.STAGING_DEPLOYMENT_STATUS = 'DEPLOYING' }
-        sh 'bash ci/deploy.sh STAGING'
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: (params.AWS_CREDENTIALS_ID ?: 'jenkins-aws')]]) {
+          sh 'aws sts get-caller-identity'
+          sh 'bash ci/deploy.sh STAGING'
+        }
         script { env.STAGING_DEPLOYMENT_STATUS = 'VERIFIED' }
       }
       post {
