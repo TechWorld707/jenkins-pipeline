@@ -16,18 +16,12 @@ a final snapshot at the owner's request, along with its ECR images and report
 bucket. Its old state history remains in the protected backend. Do not recreate
 resources from old configuration or old saved plans.
 
-## Deployed environments
+## Current deployment status
 
-| Environment | Application URL | Service size | Database |
-| --- | --- | --- | --- |
-| Staging | https://d1d5yx6wu274gs.cloudfront.net | One task per service | Single-AZ |
-| Production | https://d3ayob9ayz3pqq.cloudfront.net | Two tasks per service | Multi-AZ |
-
-Both initial deployments use the scanned release from shared CodeBuild run
-`554447aa-c576-467b-a2a2-5b8f61a0f395`, commit
-`ef52fe93cfd9ae157d3d2271a31e82d648adb118`. Subsequent Jenkins releases update
-staging, then promote the same manifest to production after approval. Get current
-infrastructure outputs from each root.
+The shared, staging and production resources were destroyed on 25 October 2026.
+Bootstrap remote-state storage and local Jenkins were retained. Old application
+URLs and image digests are no longer valid. Follow the [GitHub approval setup](GITHUB_AWS_ROLE_SETUP.md)
+to provision the stacks again; obtain new URLs from the approved applies.
 
 ## Remote state
 
@@ -43,38 +37,26 @@ backend bucket, its encryption key or access-log bucket.
 
 ## Build and deployment order
 
-1. Initialise shared with `terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl`.
-2. Review a shared plan and apply it. Its outputs provide CodeBuild, ECR URLs and
-   the report bucket.
-3. Build and scan the application once in `webtech-shared-image-builder`. Jenkins
-   or an explicit bootstrap build supplies EXPECTED_COMMIT and sourceVersion as
-   the same full Git commit SHA. The successful build publishes both images and
-   a release.json containing immutable digest references.
-4. Supply each environment with its own random cloudfront_origin_token and the
-   release manifest's frontend/backend images. Local `*.auto.tfvars.json` files
-   are git-ignored, mode 0600, and must not be committed. Retain these inputs for
-   later plans. Remote/CI execution must receive the same inputs securely.
-5. Initialise and review staging, apply its plan, wait for ECS stability and check
-   `/`, `/healthz` and `/api/health/db` through its CloudFront URL.
-6. Review/apply production with the same release only after staging verification.
+Use GitHub Actions for reviewed infrastructure applies:
 
-```sh
-terraform -chdir=infra/terraform/environments/staging init -backend-config=backend.hcl
-terraform -chdir=infra/terraform/environments/staging plan -out=tfplan
-# Review the plan before applying it.
-terraform -chdir=infra/terraform/environments/staging apply tfplan
-terraform -chdir=infra/terraform/environments/staging output -json jenkins_parameters
-```
+1. Run the security workflow on main for **shared**; review its plan and approve
+   the `terraform-shared` deployment.
+2. Run Jenkins with `BUILD_ONLY=true` to build, scan and publish initial images.
+3. Supply stable private origin tokens and image-map secrets to GitHub Actions.
+4. Run/review/approve **staging**, then **production** infrastructure in GitHub.
+5. Copy the new infrastructure outputs to Jenkins. Normal Jenkins releases use
+   `BUILD_ONLY=false` and separate staging/production application approvals.
 
-Use the production folder for production commands. Saved binary and JSON plans
-can contain secret inputs; keep them private and outside Git.
+The [setup guide](GITHUB_AWS_ROLE_SETUP.md) lists the exact settings and sequence.
+For local inspection, use each root's state/output commands; deployment approvals
+belong in GitHub Actions. Plans and state can contain secrets; keep them private.
 
 ## Jenkins settings
 
 - CODEBUILD_PROJECT: `webtech-shared-image-builder`
 - REPORT_BUCKET: `webtech-shared-reports-671662643382`
 - AWS_CREDENTIALS_ID: `jenkins-aws`
-- STAGING_URL: `https://d1d5yx6wu274gs.cloudfront.net`
+- STAGING_URL: new staging `jenkins_parameters.url` output
 - STAGING_* service/cluster settings: staging's `jenkins_parameters` output
 - STAGING_APPROVERS: authorised Jenkins user IDs/groups
 - PRODUCTION_*: production outputs and its authorised PRODUCTION_APPROVERS
@@ -95,21 +77,16 @@ explicit deployment of the new task revision. Service Connect supplies nginx's
 
 ## CI and permissions
 
-The GitHub security workflow validates bootstrap, shared, staging and production.
-Its approved Terraform plan/apply jobs target **shared** only; environment changes
-require separate reviewed plans with their private inputs. The existing protected
-`terraform-production` GitHub environment remains the approval gate for that shared
-apply job; its name does not mean the production application is applied there.
+GitHub Actions owns infrastructure plans and approved applies for **shared**,
+**staging** and **production**. Each stack has its own saved plan, report,
+concurrency group and protected GitHub environment. Jenkins owns image builds,
+scans, publication and application releases, with separate staging/production
+application approvals. Bootstrap remains outside these workflows.
 
-The plan role now has GetObject/PutObject/DeleteObject access to the shared state
-lock only, replacing its retired app-lock permission. IAM simulation confirms
-that access. The broader apply-role policy changes in `iam/` remain proposals:
-automatic approval review rejected their installation because they change access
-across state prefixes/resources. They need explicit review before the GitHub
-apply job can manage the new shared infrastructure. Application deployment via
-the current provisioning identity is independent of that blocked role update.
-Old edge/RDS policy sources in `iam/` describe previous supplemental permissions;
-they do not grant the new environment deployment permissions automatically.
+See [GITHUB_AWS_ROLE_SETUP.md](GITHUB_AWS_ROLE_SETUP.md) for environment reviewers,
+OIDC roles, private Terraform inputs and the first-deployment sequence. GitHub
+approval settings and AWS permissions are separate from committing workflow YAML.
+Existing historical IAM policies do not automatically authorise all three stacks.
 
 ## Operational notes
 

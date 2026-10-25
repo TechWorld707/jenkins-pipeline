@@ -9,18 +9,19 @@ pipeline {
     timeout(time: 180, unit: 'MINUTES')
   }
   parameters {
+    booleanParam(name: 'BUILD_ONLY', defaultValue: false, description: 'Build, scan and publish images without deploying; use to bootstrap new infrastructure')
     string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-shared-image-builder')
     string(name: 'AWS_CREDENTIALS_ID', defaultValue: 'jenkins-aws', description: 'Jenkins AWS credential ID')
     string(name: 'REPORT_BUCKET', defaultValue: 'webtech-shared-reports-671662643382')
     string(name: 'STAGING_CLUSTER', defaultValue: 'webtech-staging')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: 'webtech-staging-frontend')
     string(name: 'STAGING_BACKEND_SERVICE', defaultValue: 'webtech-staging-backend')
-    string(name: 'STAGING_URL', defaultValue: 'https://d1d5yx6wu274gs.cloudfront.net', description: 'Staging CloudFront HTTPS URL')
+    string(name: 'STAGING_URL', defaultValue: '', description: 'Staging CloudFront HTTPS URL')
     string(name: 'STAGING_APPROVERS', defaultValue: '', description: 'Comma-separated Jenkins users or groups allowed to approve staging')
     string(name: 'PRODUCTION_CLUSTER', defaultValue: 'webtech-production')
     string(name: 'PRODUCTION_FRONTEND_SERVICE', defaultValue: 'webtech-production-frontend')
     string(name: 'PRODUCTION_BACKEND_SERVICE', defaultValue: 'webtech-production-backend')
-    string(name: 'PRODUCTION_URL', defaultValue: 'https://d3ayob9ayz3pqq.cloudfront.net', description: 'Production CloudFront HTTPS URL')
+    string(name: 'PRODUCTION_URL', defaultValue: '', description: 'Production CloudFront HTTPS URL')
     string(name: 'PRODUCTION_APPROVERS', defaultValue: '', description: 'Comma-separated Jenkins users or groups allowed to approve production')
   }
   environment {
@@ -40,8 +41,12 @@ pipeline {
       steps {
         sh 'python3 ci/jenkins-release.py config'
         // Fail before publishing immutable tags if deployment settings are missing.
-        sh 'python3 ci/jenkins-release.py staging-config'
-        sh 'python3 ci/jenkins-release.py production-config'
+        script {
+          if (!params.BUILD_ONLY) {
+            sh 'python3 ci/jenkins-release.py staging-config'
+            sh 'python3 ci/jenkins-release.py production-config'
+          }
+        }
       }
     }
     stage('CodeBuild: build, scan, publish') {
@@ -56,7 +61,7 @@ pipeline {
       }
     }
     stage('Approve staging deployment') {
-      when { branch 'main' }
+      when { allOf { branch 'main'; expression { !params.BUILD_ONLY } } }
       steps {
         sh 'python3 ci/jenkins-release.py staging-config'
         script {
@@ -90,7 +95,7 @@ ${release}
       }
     }
     stage('Deploy and verify staging') {
-      when { branch 'main' }
+      when { allOf { branch 'main'; expression { !params.BUILD_ONLY } } }
       steps {
         script { env.STAGING_DEPLOYMENT_STATUS = 'DEPLOYING' }
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: (params.AWS_CREDENTIALS_ID ?: 'jenkins-aws')]]) {
@@ -113,7 +118,7 @@ ${release}
       }
     }
     stage('Approve production deployment') {
-      when { branch 'main' }
+      when { allOf { branch 'main'; expression { !params.BUILD_ONLY } } }
       steps {
         sh 'python3 ci/jenkins-release.py production-config'
         sh 'python3 ci/jenkins-release.py production-ready'
@@ -148,7 +153,7 @@ ${release}
       }
     }
     stage('Deploy and verify production') {
-      when { branch 'main' }
+      when { allOf { branch 'main'; expression { !params.BUILD_ONLY } } }
       steps {
         sh 'python3 ci/jenkins-release.py production-ready'
         script { env.PRODUCTION_DEPLOYMENT_STATUS = 'DEPLOYING' }

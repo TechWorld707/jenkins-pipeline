@@ -1,35 +1,22 @@
-# GitHub Terraform policy transition
+# GitHub Terraform IAM policy sources
 
-Application deployment now uses shared, staging and production state keys.
-The existing GitHub Terraform job targets shared infrastructure only.
+See [the setup guide](../GITHUB_AWS_ROLE_SETUP.md) for the three GitHub approval
+environments and their separate apply-role requirements.
 
-The plan-role lock fix has been installed: its existing GetObject/PutObject/
-DeleteObject permission now targets only the shared `.tflock` object, replacing
-the retired app lock. It does not grant writes to Terraform state or locks for
-staging/production. IAM simulation confirms shared lock access is allowed.
+- `github-terraform-plan-backend-policy.json` proposes lock access for the exact
+  shared, staging and production `.tflock` objects. Only shared lock access was
+  previously installed. The source update does not change AWS automatically.
+- `github-terraform-{shared,staging,production}-apply-trust.json` restrict each
+  apply role to one protected GitHub environment using immutable OIDC subjects.
+- The existing `github-terraform-apply-*.json` permission policies include
+  historical legacy supplements and unapplied shared-policy proposals. They
+  are not a complete, installed permission set for the new three-stack workflow.
 
-The three broader apply-role policy updates below remain **unapplied**. Automatic
-approval review rejected that broader update because it changes access across
-state prefixes and shared resources.
+AWS role changes were not performed in this change. Review deployment permissions
+against each root, including exact state/lock objects, resource names, PassRole,
+KMS and global edge operations, before installing policies. Preserve bootstrap
+and exclude management of the GitHub roles themselves from deployment access.
 
-| Source | Intended AWS destination | Change |
-| --- | --- | --- |
-| github-terraform-plan-backend-policy.json | GitHubTerraformPlanRole / TerraformPlanBackendAccess | Shared state lock only (installed) |
-| github-terraform-apply-policy.json | GitHubTerraformApplyRole / TerraformApplyStackAccess | New state keys and shared ECR repository names |
-| github-terraform-apply-codebuild-policy.json | GitHubTerraformApplyCodebuildAccess | Shared CodeBuild role, project and log group |
-| github-terraform-apply-logging-policy.json | GitHubTerraformApplyLoggingAccess | Shared report bucket |
-
-Existing bootstrap/state encryption access must be preserved. The plan role's
-existing ReadOnlyAccess attachment and the apply role's OIDC approval trust are
-unchanged. Role and policy documents were backed up privately before preparing
-changes. Only the narrow plan-role lock update has been installed.
-
-The old RDS/edge policy files reflect still-attached historical supplemental
-policies. They do not automatically authorise the new environment resources and
-are not used by the shared-only apply job. Their future replacement or removal
-requires a separate permission review. Creating the new environments with the
-current provisioning identity does not prove the GitHub roles can manage them.
-
-Do not rerun an old workflow revision that targets retired legacy configuration.
-The shared plan job can now acquire its lock. Review/install the remaining
-approved permissions before relying on infrastructure writes from the apply job.
+An earlier attempt to install broad policy changes was rejected by automatic
+approval review. That rejection did not install those permissions; these source
+files must not be treated as evidence of live IAM access.
