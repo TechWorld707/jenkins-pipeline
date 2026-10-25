@@ -15,26 +15,27 @@ SonarQube, remains unchanged. CodeBuild runs image scans with Trivy only.
    credential `github-checks-token` with read access to repository Actions runs.
 3. Give the Jenkins agent an AWS IAM role (or configure short-lived credentials
    outside this Jenkinsfile). Scope CodeBuild StartBuild, BatchGetBuilds, StopBuild
-   to webtech-image-builder; allow GetObject for the report prefix and the ECS
+   to webtech-shared-image-builder; allow GetObject for the report prefix and the ECS
    operations below. Do not place AWS keys in source files.
-4. Apply the reviewed Terraform changes through the existing PR workflow. They
-   supply AWS_ACCOUNT_ID and SCAN_REPORT_BUCKET to CodeBuild and allow its service
-   role PutObject only under reports/ and DescribeImages on the two ECR repos.
-   CodeBuild GitHub source authentication must already be configured for cloning.
-5. Supply the Jenkins build parameters. REPORT_BUCKET defaults to the existing
-   private ALB log bucket. Set separate STAGING_* and PRODUCTION_* ECS clusters,
+4. Provision the shared and environment stacks using the reviewed plans described
+   in the infrastructure setup guide below. The existing GitHub plan/apply workflow
+   still manages only legacy infrastructure. The shared stack supplies CodeBuild
+   AWS_ACCOUNT_ID and SCAN_REPORT_BUCKET and grants its scoped ECR/report access.
+   Configure CodeBuild GitHub source authentication before the initial build.
+5. Supply the Jenkins build parameters. REPORT_BUCKET defaults to the new
+   private shared report bucket. Set separate STAGING_* and PRODUCTION_* ECS clusters,
    frontend/backend service names, and environment base URLs. Set
    PRODUCTION_APPROVERS to Jenkins user/group IDs authorised to approve production.
    Blank settings fail before starting CodeBuild.
 
-Staging/production services are prerequisites: this change does not create them.
-Each service must use ECS rolling deployments and a task definition containing a
-container named frontend or backend, respectively. Configure an ECS deployment
-circuit breaker with rollback, load-balancer health checks, nonzero desired count,
-networking, execution permissions, and environment-specific database/secrets.
-The environment URL must route / to the frontend and /healthz to backend health.
-Frontend currently proxies /healthz to backend:8000; configure that DNS/service
-connectivity in each environment. Production and staging must not share writable
+Staging/production services are provisioned by `infra/terraform/environments/`.
+See [the infrastructure setup guide](../infra/terraform/README.md) for bootstrap
+images, environment plans and Jenkins output values.
+The ECS module creates separate frontend/backend services with rolling deployments,
+circuit-breaker rollback, private networking and environment-specific credentials.
+Service Connect supplies the backend:8000 alias used by nginx. The environment URL
+routes / to the frontend, /healthz to backend health, and /api/health/db to a
+PostgreSQL connectivity check. Production and staging must not share writable
 application data or secrets.
 
 The Jenkins IAM role needs DescribeServices, DescribeTaskDefinition,
@@ -42,8 +43,8 @@ RegisterTaskDefinition, UpdateService, and PassRole limited to the task/executio
 roles used by those services (PassedToService ecs-tasks.amazonaws.com).
 RegisterTaskDefinition needs wildcard resource where no revision exists yet;
 limit other writes to the intended services. Pipeline creation does not install
-Jenkins credentials or AWS policies. The existing Terraform apply role's
-CodeBuild inline-policy management is used to install build-role permissions.
+Jenkins credentials or AWS policies. Existing IAM policy JSON targets legacy resource names; update the deployment
+roles for the new shared and environment resources before provisioning.
 
 ## Gates and report folder
 
@@ -99,7 +100,7 @@ approve an older release after a newer release has been deployed by another job.
     python3 ci/test_image_gate.py
     python3 -m compileall -q ci
     terraform fmt -check -recursive infra/terraform
-    terraform -chdir=infra/terraform validate
+    terraform -chdir=infra/terraform/environments/staging validate
 
 The failure-path test uses fake Docker/AWS commands and verifies frontend failure,
 backend failure, and scanner errors cannot reach any AWS upload or push stage.

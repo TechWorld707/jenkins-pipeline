@@ -31,6 +31,12 @@ jobs:
       - name: Lint Python backend
         run: ruff check .
 
+      - name: Install backend test dependencies
+        run: python -m pip install -r app/backend/requirements.txt
+
+      - name: Test image publication gates and database configuration
+        run: python -m unittest discover -s ci -p 'test_*.py'
+
       - name: Check Python syntax
         if: ${{ hashFiles('app/backend/**/*.py') != '' }}
         run: python -m compileall -q app/backend
@@ -404,19 +410,32 @@ jobs:
 
       - name: Initialise Terraform without the remote backend
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform init -backend=false -input=false
+        run: |
+          for root in bootstrap legacy shared environments/staging environments/production; do
+            terraform -chdir="infra/terraform/$root" init -backend=false -input=false -lockfile=readonly
+          done
 
       - name: Validate Terraform configuration
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform validate
+        run: |
+          for root in bootstrap legacy shared environments/staging environments/production; do
+            terraform -chdir="infra/terraform/$root" validate
+          done
 
       - name: Initialise TFLint
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: tflint --chdir=infra/terraform --init
+        run: |
+          for root in legacy shared environments/staging environments/production; do
+            tflint --chdir="infra/terraform/$root" --init
+          done
 
       - name: Run TFLint and create SARIF report
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: tflint --chdir=infra/terraform --format=sarif > tflint-results.sarif
+        run: |
+          tflint --chdir=infra/terraform/legacy --format=sarif > tflint-results.sarif
+          for root in shared environments/staging environments/production; do
+            tflint --chdir="infra/terraform/$root" --call-module-type=local
+          done
 
       - name: Upload TFLint findings to GitHub code scanning
         if: ${{ always() && hashFiles('tflint-results.sarif') != '' }}
@@ -466,7 +485,7 @@ jobs:
 
       - name: Initialise Terraform
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform init -input=false
+        run: terraform -chdir=infra/terraform/legacy init -input=false
 
       - name: Create Terraform plan
         id: plan
@@ -475,7 +494,7 @@ jobs:
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
           set +e
-          terraform -chdir=infra/terraform plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
+          terraform -chdir=infra/terraform/legacy plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
           status=$?
           set -e
           if [ "$status" -eq 1 ]; then exit 1; fi
@@ -484,7 +503,7 @@ jobs:
 
       - name: Create readable plan report
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform show -no-color tfplan > terraform-plan.txt
+        run: terraform -chdir=infra/terraform/legacy show -no-color tfplan > terraform-plan.txt
 
       - name: Display plan report in the workflow summary
         if: ${{ always() && hashFiles('terraform-plan.txt') != '' }}
@@ -501,7 +520,7 @@ jobs:
           name: terraform-plan-report
           path: |
             terraform-plan.txt
-            infra/terraform/tfplan
+            infra/terraform/legacy/tfplan
           retention-days: 1
 
       - name: Explain why Terraform plan was skipped
@@ -555,10 +574,10 @@ jobs:
           aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
 
       - name: Initialise Terraform with locked provider versions
-        run: terraform -chdir=infra/terraform init -input=false -lockfile=readonly
+        run: terraform -chdir=infra/terraform/legacy init -input=false -lockfile=readonly
 
       - name: Apply the saved reviewed plan
-        run: terraform -chdir=infra/terraform apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/infra/terraform/tfplan"
+        run: terraform -chdir=infra/terraform/legacy apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/infra/terraform/legacy/tfplan"
 
       - name: Record deployment result
         run: echo "Terraform applied the reviewed plan for commit $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
