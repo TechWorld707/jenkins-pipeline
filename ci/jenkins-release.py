@@ -57,6 +57,8 @@ def main():
         missing = [key for key in required if not os.environ.get(key, '').strip()]
         if missing:
             raise SystemExit('Configure Jenkins build settings: ' + ', '.join(missing))
+        print(f"CodeBuild project: {os.environ['CODEBUILD_PROJECT']}", flush=True)
+        print(f"Report bucket: {os.environ['REPORT_BUCKET']}", flush=True)
     elif mode == 'staging-config':
         required = ['STAGING_CLUSTER', 'STAGING_FRONTEND_SERVICE', 'STAGING_BACKEND_SERVICE',
                     'STAGING_URL', 'STAGING_APPROVERS']
