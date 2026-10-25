@@ -1,12 +1,12 @@
 """Jenkins orchestration. AWS authentication comes from the agent's IAM identity."""
 import json
 import os
-from pathlib import Path
+import signal
 import subprocess
 import sys
-import signal
 import time
 import urllib.request
+from pathlib import Path
 
 
 def aws(*args):

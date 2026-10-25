@@ -1,10 +1,10 @@
 """Verify scan failures cannot reach AWS uploads or image publication."""
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -42,7 +42,7 @@ Path('reports/'+component+'-trivy.json').write_text(json.dumps({'SchemaVersion':
                            AWS_DEFAULT_REGION='eu-west-2', SCAN_REPORT_BUCKET='test',
                            FRONTEND_ECR_REPOSITORY='frontend', BACKEND_ECR_REPOSITORY='backend')
                 result = subprocess.run(['bash', 'ci/build-images.sh'], cwd=work, env=env,
-                                        capture_output=True, text=True)
+                                        capture_output=True, text=True, check=False)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse((work / 'aws-called').exists(), result.stdout + result.stderr)
                 self.assertEqual((work / 'scanned').read_text().splitlines(),
