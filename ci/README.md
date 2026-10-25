@@ -1,11 +1,11 @@
-# Jenkins image publication and approved staging deployment
+# Jenkins image publication and approved environment promotion
 
 Merge into main → GitHub webhook → Jenkins → CodeBuild build/scan/report/push
-→ manual staging approval → deploy the same image digests → smoke tests.
+→ staging approval → staging deploy/tests → production approval → production deploy/tests.
 
 GitHub CI runs independently; Jenkins does not wait for the whole workflow or its
 Terraform approval. Require the desired CI checks before merge using main branch
-protection. This pipeline does not deploy production.
+protection. Production is promoted only after verified staging and a separate manual approval.
 
 Need a Jenkins server first? Follow the [local Docker setup](../jenkins/README.md).
 
@@ -31,7 +31,7 @@ Need a Jenkins server first? Follow the [local Docker setup](../jenkins/README.m
 5. Supply CODEBUILD_PROJECT and REPORT_BUCKET from the shared Terraform outputs.
    Supply STAGING_CLUSTER, STAGING_FRONTEND_SERVICE, STAGING_BACKEND_SERVICE and
    STAGING_URL from staging outputs. Set STAGING_APPROVERS to comma-separated
-   Jenkins user IDs or group names allowed to approve deployment. Staging settings
+   Jenkins user IDs or group names allowed to approve deployment. Both environment settings
    are validated before image publication and checked again before approval. Blank approval settings fail closed.
    Restrict who can edit job parameters. Jenkins administrators can also approve.
 
@@ -49,7 +49,7 @@ Repository changes do not configure the live webhook or Jenkins job.
 
 ## Approval and event tracking
 
-Staging configuration is checked before image publication so missing approvers
+Both environments are checked before image publication so missing approvers
 or a missing URL do not leave a published SHA that must be rebuilt on retry.
 
 Scan reports and release.json are archived immediately after successful ECR
@@ -125,14 +125,14 @@ Staging task definitions are copied from their existing environment-specific
 services, changing only image digests. Jenkins waits for service stability, checks
 that ECS did not roll back to an old task definition, then checks /, /healthz and /api/health/db.
 These are smoke tests, not full end-to-end tests. Staging requires manual approval and uses the published manifest without
-rebuilding. Production is outside this pipeline. Services are updated
+rebuilding. Production promotes the exact manifest verified in staging. Services are updated
 sequentially; a partial deployment failure stops the pipeline and needs operator
 review. Existing ECS circuit-breaker rollback is recommended; this script does
 not promise an atomic two-service rollback.
 
-Jenkins has an overall 120-minute timeout, CodeBuild waits up to 40 minutes, and
-staging approval expires after 30 minutes. Configure Jenkins permissions so
-only trusted users can change job parameters or approve staging. Do not
+Jenkins has an overall 180-minute timeout, CodeBuild waits up to 40 minutes, and
+each environment approval expires after 30 minutes. Configure Jenkins permissions so
+only trusted users can change job parameters or approve staging/production. Do not
 approve an older release after a newer release has been deployed by another job.
 
 ## Local verification
@@ -152,7 +152,7 @@ An actual Jenkins/CodeBuild/ECS run is still required for end-to-end validation.
 Install the AWS Credentials plugin (included in `jenkins/plugins.txt`) and add an
 **AWS Credentials** entry with ID `jenkins-aws` in the Jenkins credential store.
 The AWS_CREDENTIALS_ID build parameter selects this entry. The Jenkinsfile binds
-it only during CodeBuild and approved staging deployment; it checks the identity
+it only during CodeBuild and approved staging/production deployment; it checks the identity
 with STS before each operation. Host AWS profiles are not automatically available
 inside the container. See [local authentication setup](../jenkins/README.md#aws-authentication).
 
@@ -165,3 +165,50 @@ report bucket have been deleted. Update saved Jenkins build parameters as well
 as merging the Jenkinsfile defaults. Use staging Terraform outputs for its URL
 and service settings. GitHub Terraform role policy updates remain pending
 separate security approval; see the infrastructure guide.
+
+## Production promotion
+
+Set the following parameters before starting the pipeline. Defaults match the
+currently deployed production infrastructure; PRODUCTION_APPROVERS is deliberately
+blank and must contain authorised Jenkins user IDs or group names.
+
+| Parameter | Default/value |
+| --- | --- |
+| PRODUCTION_CLUSTER | webtech-production |
+| PRODUCTION_FRONTEND_SERVICE | webtech-production-frontend |
+| PRODUCTION_BACKEND_SERVICE | webtech-production-backend |
+| PRODUCTION_URL | https://d3ayob9ayz3pqq.cloudfront.net |
+| PRODUCTION_APPROVERS | Your authorised Jenkins user/group IDs |
+
+Both STAGING_APPROVERS and PRODUCTION_APPROVERS are required before image
+publication. For this learning setup, the same user may approve both; Jenkins
+administrators can approve regardless of the configured submitter list. Restrict
+who may edit job parameters. Production must have a different configured cluster
+and URL from staging.
+
+After staging smoke tests succeed, Jenkins archives `staging-verification.txt`
+with the tested release manifest's SHA256. Open **Paused for Input** for **Approve
+production deployment**, review the scan reports and staging evidence, then choose
+**Deploy to production** or **Abort**. Approval times out after 30 minutes. Abort
+or timeout leaves staging deployed and skips production. No second CodeBuild
+build or image push occurs during promotion.
+
+The production gate requires staging status VERIFIED in this same run and checks
+the release manifest's hash and commit before approval and again before deployment.
+It rejects a changed manifest. Production copies its own current task definitions,
+changing only image digests, preserving its database configuration, secrets,
+roles and task settings. It waits for ECS and checks /, /healthz and /api/health/db.
+
+Jenkins archives `production-approval.txt` (approver, UTC time, target and manifest)
+and `production-result.txt` (status and pipeline result). Both environment result
+files include the overall pipeline result: production rejection/failure can mark
+the run aborted/failed while staging status remains VERIFIED. Approval artifacts
+and scan reports are in Jenkins; only scan reports and release.json are uploaded
+to S3 by the current pipeline.
+
+The AWS credential must allow production ECS reads, task registration and service
+updates, plus PassRole limited to production task/execution roles, as well as its
+existing staging permissions. This code change does not modify AWS IAM policies.
+Updates to two services are not atomic, and smoke-test failure does not itself
+roll back both services. Keep competing deployers out of these environments while
+approval is pending. Live production promotion must be verified after merge.

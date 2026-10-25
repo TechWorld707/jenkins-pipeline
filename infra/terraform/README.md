@@ -26,7 +26,8 @@ resources from old configuration or old saved plans.
 Both initial deployments use the scanned release from shared CodeBuild run
 `554447aa-c576-467b-a2a2-5b8f61a0f395`, commit
 `ef52fe93cfd9ae157d3d2271a31e82d648adb118`. Subsequent Jenkins releases update
-staging independently. Get current infrastructure outputs from each root.
+staging, then promote the same manifest to production after approval. Get current
+infrastructure outputs from each root.
 
 ## Remote state
 
@@ -76,10 +77,13 @@ can contain secret inputs; keep them private and outside Git.
 - STAGING_URL: `https://d1d5yx6wu274gs.cloudfront.net`
 - STAGING_* service/cluster settings: staging's `jenkins_parameters` output
 - STAGING_APPROVERS: authorised Jenkins user IDs/groups
+- PRODUCTION_*: production outputs and its authorised PRODUCTION_APPROVERS
 
 Jenkins publishes scans and immutable images, then requests staging approval.
-Approval records the user/time and deploys the same digests. Production deployment
-is outside that Jenkins pipeline. Provisioning a fresh environment creates its
+Approval records the user/time and deploys the same digests to staging. Once
+staging verification succeeds, a separate production approval promotes that exact
+manifest, without another build. Production approval and result records are archived
+with the Jenkins build. Provisioning a fresh environment creates its
 initial ECS services through Terraform; subsequent application releases use the
 Jenkins approval flow. Do not rebuild an already-published SHA: ECR tags are
 immutable. Reuse its release manifest when recovering a deployment-only failure.

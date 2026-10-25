@@ -41,10 +41,10 @@ into this repository or chat.
    **Scan Multibranch Pipeline Now**. Open the resulting **main** job.
 6. Configure the main job's parameters before the first full deployment run:
    CODEBUILD_PROJECT, REPORT_BUCKET, STAGING_CLUSTER, STAGING_FRONTEND_SERVICE,
-   STAGING_BACKEND_SERVICE, STAGING_URL and STAGING_APPROVERS. The approver value
-   is your Jenkins user ID or an authorised group. Some parameters appear only
-   after Jenkins first loads the Jenkinsfile. If the first run reaches staging
-   validation with missing values, it stops after publication without deploying.
+   STAGING_BACKEND_SERVICE, STAGING_URL, STAGING_APPROVERS and corresponding
+   PRODUCTION_* parameters. Both approver values are authorised Jenkins user IDs
+   or groups. Some parameters appear only after Jenkins first loads the Jenkinsfile.
+   Missing environment settings stop validation before image publication.
 
 See [pipeline setup](../ci/README.md) for exact values, scoped IAM permissions,
 scan reports, approval behaviour and deployment tracking.
@@ -59,7 +59,7 @@ these values out of source control and chat. If using the plugin's Assume Role
 setting, configure the target role and trust policy as well.
 
 The Jenkinsfile uses AWS_CREDENTIALS_ID (default `jenkins-aws`) to bind credentials
-only around CodeBuild and staging deployment operations. Approval does not hold
+only around CodeBuild and staging/production deployment operations. Approval does not hold
 an AWS credential binding open. STS GetCallerIdentity verifies the bound identity
 at the start of each AWS stage; it never prints the keys.
 
@@ -69,8 +69,8 @@ has no credentials: bindings exist only within the job's withCredentials block.
 No host AWS files are mounted into the container.
 
 The pipeline credential needs CodeBuild StartBuild/BatchGetBuilds/StopBuild for
-the selected project, S3 report reads and staging ECS deployment permissions plus
-PassRole restricted to the staging task/execution roles. The CodeBuild service
+the selected project, S3 report reads and staging/production ECS deployment
+permissions plus PassRole restricted to both environments' task/execution roles. The CodeBuild service
 role, not this Jenkins identity, performs the Docker builds, scans and ECR pushes.
 Avoid using root or administrator credentials. Rotate stored access keys; for
 hosted Jenkins prefer role-based short-lived authentication. The required AWS

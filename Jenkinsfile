@@ -6,17 +6,22 @@ pipeline {
     disableConcurrentBuilds()
     skipDefaultCheckout(true)
     timestamps()
-    timeout(time: 120, unit: 'MINUTES')
+    timeout(time: 180, unit: 'MINUTES')
   }
   parameters {
-    string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-image-builder')
+    string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-shared-image-builder')
     string(name: 'AWS_CREDENTIALS_ID', defaultValue: 'jenkins-aws', description: 'Jenkins AWS credential ID')
-    string(name: 'REPORT_BUCKET', defaultValue: 'webtech-alb-logs-671662643382')
+    string(name: 'REPORT_BUCKET', defaultValue: 'webtech-shared-reports-671662643382')
     string(name: 'STAGING_CLUSTER', defaultValue: 'webtech-staging')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: 'webtech-staging-frontend')
     string(name: 'STAGING_BACKEND_SERVICE', defaultValue: 'webtech-staging-backend')
     string(name: 'STAGING_URL', defaultValue: 'https://d1d5yx6wu274gs.cloudfront.net', description: 'Staging CloudFront HTTPS URL')
     string(name: 'STAGING_APPROVERS', defaultValue: '', description: 'Comma-separated Jenkins users or groups allowed to approve staging')
+    string(name: 'PRODUCTION_CLUSTER', defaultValue: 'webtech-production')
+    string(name: 'PRODUCTION_FRONTEND_SERVICE', defaultValue: 'webtech-production-frontend')
+    string(name: 'PRODUCTION_BACKEND_SERVICE', defaultValue: 'webtech-production-backend')
+    string(name: 'PRODUCTION_URL', defaultValue: 'https://d3ayob9ayz3pqq.cloudfront.net', description: 'Production CloudFront HTTPS URL')
+    string(name: 'PRODUCTION_APPROVERS', defaultValue: '', description: 'Comma-separated Jenkins users or groups allowed to approve production')
   }
   environment {
     AWS_DEFAULT_REGION = 'eu-west-2'
@@ -36,6 +41,7 @@ pipeline {
         sh 'python3 ci/jenkins-release.py config'
         // Fail before publishing immutable tags if deployment settings are missing.
         sh 'python3 ci/jenkins-release.py staging-config'
+        sh 'python3 ci/jenkins-release.py production-config'
       }
     }
     stage('CodeBuild: build, scan, publish') {
@@ -91,11 +97,70 @@ ${release}
           sh 'aws sts get-caller-identity'
           sh 'bash ci/deploy.sh STAGING'
         }
-        script { env.STAGING_DEPLOYMENT_STATUS = 'VERIFIED' }
+        script {
+          env.STAGING_DEPLOYMENT_STATUS = 'VERIFIED'
+          env.STAGING_RELEASE_HASH = sh(script: 'sha256sum release.json', returnStdout: true).trim().split()[0]
+        }
+      }
+      post {
+        success {
+          writeFile file: 'staging-verification.txt', text: "Staging VERIFIED for ${env.RELEASE_SHA}\nURL: ${params.STAGING_URL}\nRelease manifest SHA256: ${env.STAGING_RELEASE_HASH}\n"
+          archiveArtifacts artifacts: 'staging-verification.txt'
+        }
+        unsuccessful {
+          script { env.STAGING_DEPLOYMENT_STATUS = 'FAILED_OR_ABORTED' }
+        }
+      }
+    }
+    stage('Approve production deployment') {
+      when { branch 'main' }
+      steps {
+        sh 'python3 ci/jenkins-release.py production-config'
+        sh 'python3 ci/jenkins-release.py production-ready'
+        script {
+          env.PRODUCTION_DEPLOYMENT_STATUS = 'AWAITING_APPROVAL'
+          def release = readFile('release.json')
+          echo "Staging verified for ${env.RELEASE_SHA}. Review the scan reports and staging verification artifact."
+          timeout(time: 30, unit: 'MINUTES') {
+            def decision = input(
+              id: 'approve-production',
+              message: "Deploy commit ${env.RELEASE_SHA} to ${params.PRODUCTION_CLUSTER}?\nURL: ${params.PRODUCTION_URL}\nImages:\n${release}",
+              ok: 'Deploy to production',
+              submitter: params.PRODUCTION_APPROVERS.trim(),
+              submitterParameter: 'PRODUCTION_APPROVER'
+            )
+            env.PRODUCTION_APPROVER = (decision instanceof Map ? decision['PRODUCTION_APPROVER'] : decision).toString()
+          }
+          env.PRODUCTION_APPROVED_AT = sh(script: 'date -u +%Y-%m-%dT%H:%M:%SZ', returnStdout: true).trim()
+          env.PRODUCTION_DEPLOYMENT_STATUS = 'APPROVED'
+          writeFile file: 'production-approval.txt', text: """Commit: ${env.RELEASE_SHA}
+Approved by: ${env.PRODUCTION_APPROVER}
+Approved at (UTC): ${env.PRODUCTION_APPROVED_AT}
+Cluster: ${params.PRODUCTION_CLUSTER}
+URL: ${params.PRODUCTION_URL}
+Build: ${env.BUILD_URL}
+Release manifest:
+${release}
+"""
+          archiveArtifacts artifacts: 'production-approval.txt'
+          echo "Production deployment approved by ${env.PRODUCTION_APPROVER} for ${env.RELEASE_SHA}"
+        }
+      }
+    }
+    stage('Deploy and verify production') {
+      when { branch 'main' }
+      steps {
+        sh 'python3 ci/jenkins-release.py production-ready'
+        script { env.PRODUCTION_DEPLOYMENT_STATUS = 'DEPLOYING' }
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: (params.AWS_CREDENTIALS_ID ?: 'jenkins-aws')]]) {
+          sh 'aws sts get-caller-identity'
+          sh 'bash ci/deploy.sh PRODUCTION'
+        }
+        script { env.PRODUCTION_DEPLOYMENT_STATUS = 'VERIFIED' }
       }
       post {
         unsuccessful {
-          script { env.STAGING_DEPLOYMENT_STATUS = 'FAILED_OR_ABORTED' }
+          script { env.PRODUCTION_DEPLOYMENT_STATUS = 'FAILED_OR_ABORTED' }
         }
       }
     }
@@ -111,9 +176,16 @@ Approved by: ${env.STAGING_APPROVER ?: 'NOT_APPROVED'}
 Cluster: ${params.STAGING_CLUSTER}
 Build: ${env.BUILD_URL}
 """
+          writeFile file: 'production-result.txt', text: """Commit: ${env.RELEASE_SHA}
+Pipeline result: ${currentBuild.currentResult}
+Production status: ${env.PRODUCTION_DEPLOYMENT_STATUS ?: 'NOT_STARTED'}
+Approved by: ${env.PRODUCTION_APPROVER ?: 'NOT_APPROVED'}
+Cluster: ${params.PRODUCTION_CLUSTER}
+Build: ${env.BUILD_URL}
+"""
         }
       }
-      archiveArtifacts artifacts: 'codebuild-id.txt,release.json,reports/*.html,reports/*.json,staging-approval.txt,staging-result.txt', allowEmptyArchive: true
+      archiveArtifacts artifacts: 'codebuild-id.txt,release.json,reports/*.html,reports/*.json,staging-approval.txt,staging-verification.txt,staging-result.txt,production-approval.txt,production-result.txt', allowEmptyArchive: true
     }
   }
 }
