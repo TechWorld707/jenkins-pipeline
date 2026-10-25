@@ -461,24 +461,53 @@ jobs:
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
         run: echo "Terraform checks were skipped because infra/terraform does not contain Terraform files yet."
 
-  terraform:
-    name: Terraform (${{ matrix.stack }})
+  terraform-shared:
+    name: shared infrastructure
     needs: [app-lint, trivy, checkov, sonarqube, terraform-checks]
-    # Fork PRs never receive AWS credentials. Apply is restricted inside the reusable workflow.
-    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        stack: ${{ github.event_name == 'workflow_dispatch' && inputs.stack != 'all' && fromJSON(format('["{0}"]', inputs.stack)) || fromJSON('["shared", "staging", "production"]') }}
+    # Plans never receive fork PR credentials; applies require main and approval.
+    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || inputs.stack == 'all' || inputs.stack == 'shared') }}
     concurrency:
-      # Keep each stack's plan and approval/apply together across workflow runs.
-      group: terraform-${{ matrix.stack }}-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+      group: terraform-shared-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
     uses: ./.github/workflows/terraform-stack.yml
     with:
-      stack: ${{ matrix.stack }}
-      enabled: ${{ matrix.stack == 'shared' || (matrix.stack == 'staging' && vars.TF_STAGING_ENABLED == 'true') || (matrix.stack == 'production' && vars.TF_PRODUCTION_ENABLED == 'true') }}
+      stack: shared
+      enabled: true
+    secrets: inherit
+
+  terraform-staging:
+    name: staging infrastructure
+    needs: [app-lint, trivy, checkov, sonarqube, terraform-checks]
+    # Plans never receive fork PR credentials; applies require main and approval.
+    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || inputs.stack == 'all' || inputs.stack == 'staging') }}
+    concurrency:
+      group: terraform-staging-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/terraform-stack.yml
+    with:
+      stack: staging
+      enabled: ${{ vars.TF_STAGING_ENABLED == 'true' }}
+    secrets: inherit
+
+  terraform-production:
+    name: production infrastructure
+    needs: [app-lint, trivy, checkov, sonarqube, terraform-checks]
+    # Plans never receive fork PR credentials; applies require main and approval.
+    if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (github.event_name != 'workflow_dispatch' || inputs.stack == 'all' || inputs.stack == 'production') }}
+    concurrency:
+      group: terraform-production-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/terraform-stack.yml
+    with:
+      stack: production
+      enabled: ${{ vars.TF_PRODUCTION_ENABLED == 'true' }}
     secrets: inherit
