@@ -29,8 +29,8 @@ resource "aws_ecs_service" "backend" {
     }
   }
 
-  # Jenkins owns application revisions; infrastructure applies preserve its release.
-  lifecycle { ignore_changes = [task_definition] }
+  # Jenkins owns application revisions; autoscaling owns the running task count.
+  lifecycle { ignore_changes = [task_definition, desired_count] }
   depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.secrets]
 }
 resource "aws_ecs_service" "frontend" {
@@ -62,7 +62,7 @@ resource "aws_ecs_service" "frontend" {
     container_name   = "frontend"
     container_port   = 8080
   }
-  # Jenkins owns application revisions; infrastructure applies preserve its release.
-  lifecycle { ignore_changes = [task_definition] }
+  # Jenkins owns application revisions; autoscaling owns the running task count.
+  lifecycle { ignore_changes = [task_definition, desired_count] }
   depends_on = [aws_iam_role_policy_attachment.execution, aws_iam_role_policy.secrets, aws_ecs_service.backend]
 }

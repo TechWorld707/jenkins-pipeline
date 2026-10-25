@@ -9,7 +9,11 @@
         "s3:PutObject",
         "s3:DeleteObject"
       ],
-      "Resource": "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/shared/terraform.tfstate.tflock"
+      "Resource": [
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/shared/terraform.tfstate.tflock",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/staging/terraform.tfstate.tflock",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/production/terraform.tfstate.tflock"
+      ]
     }
   ]
 }

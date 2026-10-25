@@ -39,6 +39,7 @@ module "ecs" {
   db_name            = module.database.name
   db_secret_arn      = module.database.secret_arn
   desired_count      = var.desired_count
+  max_task_count     = var.max_task_count
   retention_days     = var.retention_days
   target_group_arn   = module.ingress.target_group_arn
   container_insights = var.environment == "production"

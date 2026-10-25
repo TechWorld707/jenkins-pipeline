@@ -106,3 +106,13 @@ docker compose -f jenkins/compose.yml up -d
 Do not use `down -v` unless you intend to delete Jenkins data. Back up the named
 volume before upgrades. This learning setup executes trusted pipeline code on
 the controller; a hosted team setup should use separate build agents.
+
+## GitHub infrastructure gates
+
+Provision shared, staging and production through their GitHub Actions plan/apply
+approvals; Jenkins owns application releases. For a fresh installation, first
+approve shared infrastructure, then run Jenkins with `BUILD_ONLY` checked to
+publish the bootstrap images. Supply those digests to the GitHub environment
+plans before approving staging and production infrastructure. Configure Jenkins
+with the newly created URLs and run normal releases with `BUILD_ONLY` unchecked.
+Full sequence: [GitHub infrastructure approval guide](../infra/terraform/GITHUB_AWS_ROLE_SETUP.md).

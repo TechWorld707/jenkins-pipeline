@@ -1,0 +1,185 @@
+name: Terraform stack plan and approved apply
+
+on:
+  workflow_call:
+    inputs:
+      stack:
+        required: true
+        type: string
+      enabled:
+        description: Enable planning only after this stack has its private inputs configured
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Origin tokens and bootstrap image manifests must be available to the plan job.
+# Apply uses only the saved plan, so it cannot silently change these inputs.
+env:
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: 'false'
+  STACK: ${{ inputs.stack }}
+
+jobs:
+  setup-required:
+    name: Setup required for ${{ inputs.stack }}
+    if: ${{ !inputs.enabled }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain why infrastructure planning is disabled
+        run: |
+          {
+            echo "## $STACK infrastructure is not enabled"
+            echo "No Terraform commands ran for this stack."
+            echo "Configure TF_${STACK^^}_ORIGIN_TOKEN and TF_${STACK^^}_IMAGES repository secrets."
+            echo "Then set repository variable TF_${STACK^^}_ENABLED=true to enable its plan and approval gate."
+            echo "For a fresh installation: shared infrastructure, Jenkins BUILD_ONLY image publication, then environment infrastructure."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  plan:
+    name: Plan ${{ inputs.stack }} infrastructure
+    if: ${{ inputs.enabled }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select Terraform root and private inputs
+        env:
+          STAGING_ORIGIN_TOKEN: ${{ secrets.TF_STAGING_ORIGIN_TOKEN }}
+          PRODUCTION_ORIGIN_TOKEN: ${{ secrets.TF_PRODUCTION_ORIGIN_TOKEN }}
+          STAGING_IMAGES: ${{ secrets.TF_STAGING_IMAGES }}
+          PRODUCTION_IMAGES: ${{ secrets.TF_PRODUCTION_IMAGES }}
+        run: |
+          case "$STACK" in
+            shared) root=infra/terraform/shared ;;
+            staging|production)
+              root="infra/terraform/environments/$STACK"
+              if [ "$STACK" = staging ]; then
+                token="$STAGING_ORIGIN_TOKEN"
+                images="$STAGING_IMAGES"
+              else
+                token="$PRODUCTION_ORIGIN_TOKEN"
+                images="$PRODUCTION_IMAGES"
+              fi
+              if [ -z "$token" ] || [ -z "$images" ]; then
+                echo "::error::Configure TF_${STACK^^}_ORIGIN_TOKEN and TF_${STACK^^}_IMAGES repository secrets before planning this environment."
+                exit 1
+              fi
+              echo "TF_VAR_cloudfront_origin_token=$token" >> "$GITHUB_ENV"
+              # Compact JSON prevents multiline values from corrupting GITHUB_ENV.
+              echo "TF_VAR_images=$(jq -ce 'if type == "object" and (.frontend | type == "string") and (.backend | type == "string") then . else error("Expected frontend/backend image map") end' <<< "$images")" >> "$GITHUB_ENV"
+              ;;
+            *) echo '::error::Unknown Terraform stack'; exit 1 ;;
+          esac
+          echo "TF_ROOT=$root" >> "$GITHUB_ENV"
+
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: '1.10.5'
+          terraform_wrapper: false
+      - name: Configure read and lock credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      - name: Initialise with committed provider versions
+        run: terraform -chdir="$TF_ROOT" init -backend-config=backend.hcl -input=false -lockfile=readonly
+      - name: Create saved plan
+        id: plan
+        run: |
+          set +e
+          terraform -chdir="$TF_ROOT" plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
+          status=$?
+          set -e
+          case "$status" in
+            0) echo 'changes=false' >> "$GITHUB_OUTPUT" ;;
+            2) echo 'changes=true' >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+          mkdir reviewed-plan
+          cp "$TF_ROOT/tfplan" reviewed-plan/tfplan
+          terraform -chdir="$TF_ROOT" show -no-color tfplan > reviewed-plan/terraform-plan.txt
+          printf '%s\n' "$GITHUB_SHA" > reviewed-plan/commit.txt
+          printf '%s\n' "$STACK" > reviewed-plan/stack.txt
+          {
+            echo "## Terraform: $STACK"
+            echo "Review the terraform-plan-$STACK artifact before approving terraform-$STACK."
+            echo '```text'
+            head -c 750000 reviewed-plan/terraform-plan.txt
+            echo
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save readable report and exact binary plan
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: terraform-plan-${{ inputs.stack }}-${{ github.run_attempt }}
+          path: reviewed-plan/
+          retention-days: 1
+          if-no-files-found: error
+
+  apply:
+    name: Approve and apply ${{ inputs.stack }} infrastructure
+    needs: plan
+    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.plan.outputs.changes == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Configure required reviewers and main-only branches on EACH environment.
+    environment: terraform-${{ inputs.stack }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Reject superseded main commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$current_sha" = "$GITHUB_SHA" || { echo '::error::Main changed; review a new plan on the latest main commit.'; exit 1; }
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: '1.10.5'
+          terraform_wrapper: false
+      - name: Download this run's reviewed plan by immutable artifact ID
+        uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.plan.outputs.artifact-id }}
+          path: reviewed-plan
+          merge-multiple: true
+      - name: Check plan identity and select root
+        run: |
+          test "$(cat reviewed-plan/commit.txt)" = "$GITHUB_SHA"
+          test "$(cat reviewed-plan/stack.txt)" = "$STACK"
+          case "$STACK" in
+            shared) root=infra/terraform/shared ;;
+            staging|production) root="infra/terraform/environments/$STACK" ;;
+            *) exit 1 ;;
+          esac
+          echo "TF_ROOT=$root" >> "$GITHUB_ENV"
+      - name: Configure environment-scoped apply credentials after approval
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          # Set this secret inside each protected environment, never at repository scope.
+          role-to-assume: ${{ secrets.AWS_APPLY_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
+      - name: Initialise with committed provider versions
+        run: terraform -chdir="$TF_ROOT" init -backend-config=backend.hcl -input=false -lockfile=readonly
+      - name: Apply the exact reviewed plan
+        run: terraform -chdir="$TF_ROOT" apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/tfplan"
+      - name: Record infrastructure outputs for Jenkins configuration
+        run: |
+          {
+            echo "## Applied $STACK infrastructure"
+            echo "Commit: $GITHUB_SHA"
+            echo '```json'
+            terraform -chdir="$TF_ROOT" output -json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

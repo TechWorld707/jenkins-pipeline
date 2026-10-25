@@ -8,6 +8,12 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      stack:
+        description: Infrastructure to plan and request approval for
+        type: choice
+        default: all
+        options: [all, shared, staging, production]
 
 permissions:
   contents: read
@@ -455,127 +461,24 @@ jobs:
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
         run: echo "Terraform checks were skipped because infra/terraform does not contain Terraform files yet."
 
-  terraform-plan:
-    name: Terraform plan (shared infrastructure)
-    runs-on: ubuntu-latest
+  terraform:
+    name: Terraform (${{ matrix.stack }})
     needs: [app-lint, trivy, checkov, sonarqube, terraform-checks]
-    # Fork PRs never receive AWS credentials. Same-repository PRs use the plan role.
+    # Fork PRs never receive AWS credentials. Apply is restricted inside the reusable workflow.
     if: ${{ vars.TF_PLAN_ENABLED == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    outputs:
-      changes: ${{ steps.plan.outputs.changes }}
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v4.0.1
-        with:
-          terraform_version: "1.10.5"
-          terraform_wrapper: false
-
-      - name: Configure AWS credentials with GitHub OIDC
-        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
-
-      - name: Initialise Terraform
-        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl -input=false
-
-      - name: Create Terraform plan
-        id: plan
-        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: |
-          set +e
-          terraform -chdir=infra/terraform/shared plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
-          status=$?
-          set -e
-          if [ "$status" -eq 1 ]; then exit 1; fi
-          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then exit "$status"; fi
-          echo "changes=$([ "$status" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
-      - name: Create readable plan report
-        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform/shared show -no-color tfplan > terraform-plan.txt
-
-      - name: Display plan report in the workflow summary
-        if: ${{ always() && hashFiles('terraform-plan.txt') != '' }}
-        run: |
-          echo "## Terraform plan report" >> "$GITHUB_STEP_SUMMARY"
-          echo '```text' >> "$GITHUB_STEP_SUMMARY"
-          cat terraform-plan.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Save plan report as an artifact
-        if: ${{ always() && hashFiles('terraform-plan.txt') != '' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: terraform-plan-report
-          path: |
-            terraform-plan.txt
-            infra/terraform/shared/tfplan
-          retention-days: 1
-
-      - name: Explain why Terraform plan was skipped
-        if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') == '' }}
-        run: echo "Terraform plan was skipped because infra/terraform does not contain Terraform files yet."
-
-  terraform-apply:
-    name: Approve and apply shared infrastructure
-    needs: terraform-plan
-    if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.terraform-plan.outputs.changes == 'true' }}
-    runs-on: ubuntu-latest
-    # Required reviewers MUST be configured in GitHub Settings > Environments.
-    environment: terraform-production
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: ${{ github.event_name == 'workflow_dispatch' && inputs.stack != 'all' && fromJSON(format('["{0}"]', inputs.stack)) || fromJSON('["shared", "staging", "production"]') }}
     concurrency:
-      group: terraform-production-apply
+      # Keep each stack's plan and approval/apply together across workflow runs.
+      group: terraform-${{ matrix.stack }}-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
       cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
-    steps:
-      - name: Check out the planned commit
-        uses: actions/checkout@v7
-
-      - name: Reject a superseded main commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          current_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
-          if [ "$current_sha" != "$GITHUB_SHA" ]; then
-            echo "::error::Main has changed. Review and approve the latest workflow plan instead."
-            exit 1
-          fi
-
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v4.0.1
-        with:
-          terraform_version: "1.10.5"
-          terraform_wrapper: false
-
-      - name: Download the reviewed plan from this workflow run
-        uses: actions/download-artifact@v8
-        with:
-          name: terraform-plan-report
-          path: reviewed-plan
-
-      - name: Configure approved AWS apply credentials
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          # Store this secret ONLY in the protected terraform-production environment.
-          role-to-assume: ${{ secrets.AWS_APPLY_ROLE_TO_ASSUME }}
-          aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
-
-      - name: Initialise Terraform with locked provider versions
-        run: terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl -input=false -lockfile=readonly
-
-      - name: Apply the saved reviewed plan
-        run: terraform -chdir=infra/terraform/shared apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/infra/terraform/shared/tfplan"
-
-      - name: Record deployment result
-        run: echo "Terraform applied the reviewed plan for commit $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+    uses: ./.github/workflows/terraform-stack.yml
+    with:
+      stack: ${{ matrix.stack }}
+      enabled: ${{ matrix.stack == 'shared' || (matrix.stack == 'staging' && vars.TF_STAGING_ENABLED == 'true') || (matrix.stack == 'production' && vars.TF_PRODUCTION_ENABLED == 'true') }}
+    secrets: inherit
