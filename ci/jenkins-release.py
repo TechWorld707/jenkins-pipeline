@@ -5,32 +5,11 @@ import signal
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 
 def aws(*args):
     return json.loads(subprocess.check_output(["aws", *args, "--output", "json"]))
-
-
-def github_gate():
-    repo = os.environ["GITHUB_REPOSITORY"]
-    sha = os.environ["RELEASE_SHA"]
-    url = f"https://api.github.com/repos/{repo}/actions/workflows/security-scan.yml/runs?head_sha={sha}&event=push&per_page=10"
-    for _ in range(120):
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                                                  "Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=30) as response:
-            runs = json.load(response)["workflow_runs"]
-        runs = [r for r in runs if r['head_sha'] == sha and r['head_branch'] == 'main']
-        if runs:
-            run = max(runs, key=lambda r: r['id'])
-            if run['status'] == 'completed':
-                if run['conclusion'] != 'success':
-                    raise SystemExit(f"GitHub workflow failed: {run['html_url']}")
-                return
-        time.sleep(15)
-    raise SystemExit("Timed out waiting for successful main workflow for this exact SHA")
 
 
 def build():
@@ -71,19 +50,27 @@ def build():
 def interrupted(signum, frame):
     raise SystemExit('Jenkins interrupted the pipeline')
 
-signal.signal(signal.SIGTERM, interrupted)
+def main():
+    mode = sys.argv[1]
+    if mode == 'config':
+        required = ['CODEBUILD_PROJECT', 'REPORT_BUCKET', 'RELEASE_SHA']
+        missing = [key for key in required if not os.environ.get(key, '').strip()]
+        if missing:
+            raise SystemExit('Configure Jenkins build settings: ' + ', '.join(missing))
+    elif mode == 'staging-config':
+        required = ['STAGING_CLUSTER', 'STAGING_FRONTEND_SERVICE', 'STAGING_BACKEND_SERVICE',
+                    'STAGING_URL', 'STAGING_APPROVERS']
+        missing = [key for key in required if not os.environ.get(key, '').strip()]
+        if missing:
+            raise SystemExit('Configure staging deployment settings: ' + ', '.join(missing))
+        if not os.environ['STAGING_URL'].startswith('https://'):
+            raise SystemExit('STAGING_URL must use HTTPS')
+    elif mode == 'build':
+        build()
+    else:
+        raise SystemExit('Unknown mode')
 
-mode = sys.argv[1]
-if mode == 'config':
-    required = ['CODEBUILD_PROJECT', 'REPORT_BUCKET', 'PRODUCTION_APPROVERS']
-    for stage in ['STAGING', 'PRODUCTION']:
-        required += [f'{stage}_{name}' for name in ['CLUSTER', 'FRONTEND_SERVICE', 'BACKEND_SERVICE', 'URL']]
-    missing = [key for key in required if not os.environ.get(key, '').strip()]
-    if missing:
-        raise SystemExit('Configure Jenkins parameters: ' + ', '.join(missing))
-elif mode == 'github':
-    github_gate()
-elif mode == 'build':
-    build()
-else:
-    raise SystemExit('Unknown mode')
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, interrupted)
+    main()
