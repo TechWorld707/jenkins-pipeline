@@ -411,29 +411,29 @@ jobs:
       - name: Initialise Terraform without the remote backend
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
-          for root in bootstrap legacy shared environments/staging environments/production; do
+          for root in bootstrap shared environments/staging environments/production; do
             terraform -chdir="infra/terraform/$root" init -backend=false -input=false -lockfile=readonly
           done
 
       - name: Validate Terraform configuration
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
-          for root in bootstrap legacy shared environments/staging environments/production; do
+          for root in bootstrap shared environments/staging environments/production; do
             terraform -chdir="infra/terraform/$root" validate
           done
 
       - name: Initialise TFLint
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
-          for root in legacy shared environments/staging environments/production; do
+          for root in shared environments/staging environments/production; do
             tflint --chdir="infra/terraform/$root" --init
           done
 
       - name: Run TFLint and create SARIF report
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
-          tflint --chdir=infra/terraform/legacy --format=sarif > tflint-results.sarif
-          for root in shared environments/staging environments/production; do
+          tflint --chdir=infra/terraform/shared --format=sarif > tflint-results.sarif
+          for root in environments/staging environments/production; do
             tflint --chdir="infra/terraform/$root" --call-module-type=local
           done
 
@@ -456,7 +456,7 @@ jobs:
         run: echo "Terraform checks were skipped because infra/terraform does not contain Terraform files yet."
 
   terraform-plan:
-    name: Terraform plan
+    name: Terraform plan (shared infrastructure)
     runs-on: ubuntu-latest
     needs: [app-lint, trivy, checkov, sonarqube, terraform-checks]
     # Fork PRs never receive AWS credentials. Same-repository PRs use the plan role.
@@ -485,16 +485,14 @@ jobs:
 
       - name: Initialise Terraform
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform/legacy init -input=false
+        run: terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl -input=false
 
       - name: Create Terraform plan
         id: plan
-        env:
-          TF_VAR_cloudfront_origin_token: ${{ secrets.CLOUDFRONT_ORIGIN_TOKEN }}
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |
           set +e
-          terraform -chdir=infra/terraform/legacy plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
+          terraform -chdir=infra/terraform/shared plan -input=false -no-color -lock-timeout=5m -detailed-exitcode -out=tfplan
           status=$?
           set -e
           if [ "$status" -eq 1 ]; then exit 1; fi
@@ -503,7 +501,7 @@ jobs:
 
       - name: Create readable plan report
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
-        run: terraform -chdir=infra/terraform/legacy show -no-color tfplan > terraform-plan.txt
+        run: terraform -chdir=infra/terraform/shared show -no-color tfplan > terraform-plan.txt
 
       - name: Display plan report in the workflow summary
         if: ${{ always() && hashFiles('terraform-plan.txt') != '' }}
@@ -520,7 +518,7 @@ jobs:
           name: terraform-plan-report
           path: |
             terraform-plan.txt
-            infra/terraform/legacy/tfplan
+            infra/terraform/shared/tfplan
           retention-days: 1
 
       - name: Explain why Terraform plan was skipped
@@ -528,7 +526,7 @@ jobs:
         run: echo "Terraform plan was skipped because infra/terraform does not contain Terraform files yet."
 
   terraform-apply:
-    name: Approve and apply Terraform
+    name: Approve and apply shared infrastructure
     needs: terraform-plan
     if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && needs.terraform-plan.outputs.changes == 'true' }}
     runs-on: ubuntu-latest
@@ -574,10 +572,10 @@ jobs:
           aws-region: ${{ vars.AWS_REGION || 'eu-west-2' }}
 
       - name: Initialise Terraform with locked provider versions
-        run: terraform -chdir=infra/terraform/legacy init -input=false -lockfile=readonly
+        run: terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl -input=false -lockfile=readonly
 
       - name: Apply the saved reviewed plan
-        run: terraform -chdir=infra/terraform/legacy apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/infra/terraform/legacy/tfplan"
+        run: terraform -chdir=infra/terraform/shared apply -input=false -no-color -lock-timeout=5m "$GITHUB_WORKSPACE/reviewed-plan/infra/terraform/shared/tfplan"
 
       - name: Record deployment result
         run: echo "Terraform applied the reviewed plan for commit $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"

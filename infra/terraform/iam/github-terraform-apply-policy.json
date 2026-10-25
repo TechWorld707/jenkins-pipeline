@@ -165,8 +165,12 @@
       "Condition": {
         "StringLike": {
           "s3:prefix": [
-            "jenkins-pipeline/app/terraform.tfstate",
-            "jenkins-pipeline/app/terraform.tfstate.tflock"
+            "jenkins-pipeline/shared/terraform.tfstate",
+            "jenkins-pipeline/shared/terraform.tfstate.tflock",
+            "jenkins-pipeline/staging/terraform.tfstate",
+            "jenkins-pipeline/staging/terraform.tfstate.tflock",
+            "jenkins-pipeline/production/terraform.tfstate",
+            "jenkins-pipeline/production/terraform.tfstate.tflock"
           ]
         }
       }
@@ -186,7 +190,11 @@
         "s3:GetObject",
         "s3:PutObject"
       ],
-      "Resource": "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/app/terraform.tfstate"
+      "Resource": [
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/shared/terraform.tfstate",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/staging/terraform.tfstate",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/production/terraform.tfstate"
+      ]
     },
     {
       "Sid": "ManageStateLock",
@@ -196,7 +204,11 @@
         "s3:PutObject",
         "s3:DeleteObject"
       ],
-      "Resource": "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/app/terraform.tfstate.tflock"
+      "Resource": [
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/shared/terraform.tfstate.tflock",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/staging/terraform.tfstate.tflock",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/production/terraform.tfstate.tflock"
+      ]
     },
     {
       "Sid": "ManageAppEcr",
@@ -215,8 +227,8 @@
         "ecr:DeleteLifecyclePolicy"
       ],
       "Resource": [
-        "arn:aws:ecr:eu-west-2:671662643382:repository/webtech-technologies-frontend",
-        "arn:aws:ecr:eu-west-2:671662643382:repository/webtech-technologies-backend"
+        "arn:aws:ecr:eu-west-2:671662643382:repository/webtech-shared-frontend",
+        "arn:aws:ecr:eu-west-2:671662643382:repository/webtech-shared-backend"
       ]
     },
     {

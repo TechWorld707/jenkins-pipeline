@@ -1,131 +1,136 @@
-# Staging and production infrastructure
+# Shared, staging and production infrastructure
 
 ```text
 infra/terraform/
-├── bootstrap/                 # Existing protected state bucket
-├── shared/                    # Shared ECR, CodeBuild, reports and build IAM
-├── modules/
-│   ├── network/               # VPC, two AZs, subnets, NAT and routes
-│   ├── ecs/                   # Cluster, services, initial tasks and IAM
-│   ├── database/              # Private RDS and managed credentials
-│   ├── ingress/               # ALB, CloudFront, WAF and access logs
-│   └── observability/         # Encrypted VPC flow logs
+├── bootstrap/                 # Protected remote-state bucket, logging and KMS
+├── shared/                    # ECR, CodeBuild and scan report storage
+├── modules/                   # Network, ECS, database, ingress and observability
 ├── environments/
-│   ├── staging/               # One task/service, Single-AZ RDS, 14-day logs
-│   └── production/            # Two tasks/service, Multi-AZ RDS, 30-day logs
-└── legacy/                    # Existing stack, unchanged remote state key
+│   ├── staging/               # Single-AZ DB, one task per service
+│   └── production/            # Multi-AZ DB, two tasks per service
+└── iam/                       # GitHub deployment role policy sources
 ```
 
-## Existing deployment and state
+The original application stack has been retired. Its database was deleted without
+a final snapshot at the owner's request, along with its ECR images and report
+bucket. Its old state history remains in the protected backend. Do not recreate
+resources from old configuration or old saved plans.
 
-The former root configuration is preserved in `legacy/`. Its S3 state key remains
-`jenkins-pipeline/app/terraform.tfstate`; moving files does not move or replace
-AWS resources. The existing GitHub approved plan/apply workflow now uses that
-folder. It also validates every new root. It does not automatically deploy the
-new stacks. Do not run Terraform from the former root: local `.terraform/` data
-there refers to the old stack; run from `legacy/` after initialising it instead.
+## Deployed environments
 
-The new stacks have separate state keys and distinct resource names. They are
-new parallel environments, not an automatic adoption of the old stack. No state
-was read, edited or migrated by this refactor. Deploying them while retaining the
-legacy stack incurs additional costs. Inventory the existing state with
-`terraform -chdir=infra/terraform/legacy state list` after initialising it. If you
-want to reuse existing resources, design and review imports/state transfers
-before applying; never import one resource into two active states. Keep legacy
-until the new environments have passed testing and a separate retirement plan
-has been reviewed. ALB/RDS deletion protection remains enabled.
+| Environment | Application URL | Service size | Database |
+| --- | --- | --- | --- |
+| Staging | https://d1d5yx6wu274gs.cloudfront.net | One task per service | Single-AZ |
+| Production | https://d3ayob9ayz3pqq.cloudfront.net | Two tasks per service | Multi-AZ |
 
-## Provisioning order
+Both initial deployments use the scanned release from shared CodeBuild run
+`554447aa-c576-467b-a2a2-5b8f61a0f395`, commit
+`ef52fe93cfd9ae157d3d2271a31e82d648adb118`. Subsequent Jenkins releases update
+staging independently. Get current infrastructure outputs from each root.
 
-1. Keep the existing bootstrap backend. Update each `backend.hcl` for your account
-   before using a different account. Backend and deployment roles require access
-   to each new state prefix and its `.tflock`, and to the state encryption key.
-2. Initialise and plan shared resources:
+## Remote state
 
-   ```sh
-   terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl
-   terraform -chdir=infra/terraform/shared plan -out=tfplan
-   # Review before running: terraform -chdir=infra/terraform/shared apply tfplan
-   ```
+All active application roots use separate objects in the existing backend bucket:
 
-3. Configure CodeBuild GitHub authentication and update AWS roles for the new
-   `webtech-shared-*` resources. Existing IAM policy JSON under `iam/` targets
-   legacy names and is not sufficient for the new stacks. The new infrastructure
-   also needs ECS, Cloud Map, NAT/EIP, IAM/PassRole, RDS, logging and edge permissions.
-   No account IAM policies or Jenkins credentials are installed by this change.
-4. Run the shared image-builder at the desired commit to publish the initial
-   scanned frontend/backend images. This first build is done before the first
-   Jenkins deployment because ECS services do not exist yet. Read both immutable
-   image references from its release manifest. Do not use `latest`.
-5. For each environment, supply `TF_VAR_cloudfront_origin_token` with a different
-   random 32–128 character token and `TF_VAR_images` as a JSON object containing
-   `frontend` and `backend` ECR references ending in `@sha256:<64 hex digits>`.
-   These inputs have no defaults. Never commit tokens, credentials or state.
+- `jenkins-pipeline/shared/terraform.tfstate`
+- `jenkins-pipeline/staging/terraform.tfstate`
+- `jenkins-pipeline/production/terraform.tfstate`
 
-   ```sh
-   terraform -chdir=infra/terraform/environments/staging init -backend-config=backend.hcl
-   terraform -chdir=infra/terraform/environments/staging plan -out=tfplan
-   # Review before running: terraform -chdir=infra/terraform/environments/staging apply tfplan
-   terraform -chdir=infra/terraform/environments/staging output -json jenkins_parameters
-   ```
+Each root has its own backend.hcl and lock file. Bootstrap is a separate protected
+stack and is not included in application teardown. Do not destroy or replace the
+backend bucket, its encryption key or access-log bucket.
 
-   Repeat for `production` using its folder and its own origin token. Save initial
-   image inputs securely for subsequent plans. Saved plans and state contain
-   sensitive data. Production should initially use a release already verified in
-   staging. New infrastructure applies remain explicit reviewed operations.
-6. Set Jenkins CODEBUILD_PROJECT and REPORT_BUCKET from shared outputs. Set
-   STAGING_* and PRODUCTION_* from each environment's `jenkins_parameters` output.
-   Restrict Jenkins PassRole to the task and execution role ARNs in those outputs.
-   Configure STAGING_APPROVERS with the Jenkins users/groups allowed to approve
-   staging deployment. The pipeline does not deploy production.
+## Build and deployment order
 
-## Application deployment ownership
+1. Initialise shared with `terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl`.
+2. Review a shared plan and apply it. Its outputs provide CodeBuild, ECR URLs and
+   the report bucket.
+3. Build and scan the application once in `webtech-shared-image-builder`. Jenkins
+   or an explicit bootstrap build supplies EXPECTED_COMMIT and sourceVersion as
+   the same full Git commit SHA. The successful build publishes both images and
+   a release.json containing immutable digest references.
+4. Supply each environment with its own random cloudfront_origin_token and the
+   release manifest's frontend/backend images. Local `*.auto.tfvars.json` files
+   are git-ignored, mode 0600, and must not be committed. Retain these inputs for
+   later plans. Remote/CI execution must receive the same inputs securely.
+5. Initialise and review staging, apply its plan, wait for ECS stability and check
+   `/`, `/healthz` and `/api/health/db` through its CloudFront URL.
+6. Review/apply production with the same release only after staging verification.
 
-Jenkins builds/scans once and publishes images and reports, then requests manual
-staging approval. Approval deploys the same digests to staging and checks `/`,
-`/healthz` and `/api/health/db`. Approval identity, time and deployment outcome are
-archived in Jenkins. Production deployment remains outside this pipeline. `ci/deploy.sh` wraps the existing Python deployment code;
-`ci/smoke-test.sh <url>` can independently check an environment.
+```sh
+terraform -chdir=infra/terraform/environments/staging init -backend-config=backend.hcl
+terraform -chdir=infra/terraform/environments/staging plan -out=tfplan
+# Review the plan before applying it.
+terraform -chdir=infra/terraform/environments/staging apply tfplan
+terraform -chdir=infra/terraform/environments/staging output -json jenkins_parameters
+```
 
-Terraform creates initial task definitions and services. Services ignore changes
-to `task_definition` so infrastructure applies do not roll back Jenkins releases.
-When changing container settings, secrets or task roles in Terraform, coordinate
-an explicit service deployment to the updated task definition; a Terraform apply
-alone will not switch a service to that revision. Keep task settings identical
-across both services' definitions and the live definitions Jenkins copies.
+Use the production folder for production commands. Saved binary and JSON plans
+can contain secret inputs; keep them private and outside Git.
 
-Frontend and backend remain separate services. Service Connect provides the
-`backend:8000` alias expected by nginx. Both services use 0.5 vCPU / 1 GiB task
-sizes to leave room for its proxy; measure memory before reducing sizes. Tasks
-are private and use NAT for ECR, Secrets Manager and CloudWatch. Staging has one
-NAT; production has one per AZ. NAT gateways have ongoing charges even when idle.
+## Jenkins settings
 
-RDS owns the password; ECS injects its username/password fields into the backend.
-The app still accepts DATABASE_URL for local Compose. RDS connections require TLS;
-`sslmode=require` encrypts connections but does not verify the server certificate.
-For stronger identity verification, package the RDS CA bundle and use verify-full.
-Secret rotation requires a task restart. Master credentials and create-on-startup
-tables remain learning shortcuts; production should use an application DB role
-and explicit database migrations. CloudFront-to-ALB HTTP remains the existing
-learning setup; use an origin domain/certificate for end-to-end HTTPS.
+- CODEBUILD_PROJECT: `webtech-shared-image-builder`
+- REPORT_BUCKET: `webtech-shared-reports-671662643382`
+- AWS_CREDENTIALS_ID: `jenkins-aws`
+- STAGING_URL: `https://d1d5yx6wu274gs.cloudfront.net`
+- STAGING_* service/cluster settings: staging's `jenkins_parameters` output
+- STAGING_APPROVERS: authorised Jenkins user IDs/groups
 
-## Verification
+Jenkins publishes scans and immutable images, then requests staging approval.
+Approval records the user/time and deploys the same digests. Production deployment
+is outside that Jenkins pipeline. Provisioning a fresh environment creates its
+initial ECS services through Terraform; subsequent application releases use the
+Jenkins approval flow. Do not rebuild an already-published SHA: ECR tags are
+immutable. Reuse its release manifest when recovering a deployment-only failure.
+
+Terraform ignores service task_definition changes so infrastructure applies do
+not roll back Jenkins deployments. When changing task settings, coordinate an
+explicit deployment of the new task revision. Service Connect supplies nginx's
+`backend:8000` alias. Each Fargate task has 0.5 vCPU/1 GiB for the app and proxy.
+
+## CI and permissions
+
+The GitHub security workflow validates bootstrap, shared, staging and production.
+Its approved Terraform plan/apply jobs target **shared** only; environment changes
+require separate reviewed plans with their private inputs. The existing protected
+`terraform-production` GitHub environment remains the approval gate for that shared
+apply job; its name does not mean the production application is applied there.
+
+The plan role now has GetObject/PutObject/DeleteObject access to the shared state
+lock only, replacing its retired app-lock permission. IAM simulation confirms
+that access. The broader apply-role policy changes in `iam/` remain proposals:
+automatic approval review rejected their installation because they change access
+across state prefixes/resources. They need explicit review before the GitHub
+apply job can manage the new shared infrastructure. Application deployment via
+the current provisioning identity is independent of that blocked role update.
+Old edge/RDS policy sources in `iam/` describe previous supplemental permissions;
+they do not grant the new environment deployment permissions automatically.
+
+## Operational notes
+
+- Staging uses Single-AZ RDS and one NAT; production uses Multi-AZ RDS and one NAT
+  per AZ. NAT, ALB, WAF, Fargate, RDS, logging and KMS incur ongoing charges.
+- Both environments have separate databases, secrets, VPCs and origin tokens.
+- RDS-managed password fields are injected by ECS. Restart tasks after rotation.
+- Database TLS uses sslmode=require; certificate validation needs an RDS CA bundle
+  and verify-full. Master credentials and startup table creation remain learning
+  shortcuts; use an app DB role and migrations for a hardened production system.
+- CloudFront-to-ALB HTTP remains the learning configuration. An origin domain and
+  certificate are required for end-to-end HTTPS.
+- ALB/RDS deletion protections remain enabled in the new environments. Review and
+  disable them explicitly before future destruction; final DB snapshots are on.
+- Resource-scoped scan exceptions cover intentional short retention, staging
+  availability choices, cross-module relationships and outbound HTTPS through NAT.
+
+## Local checks
 
 ```sh
 terraform fmt -check -recursive infra/terraform
-for root in bootstrap legacy shared environments/staging environments/production; do
+for root in bootstrap shared environments/staging environments/production; do
   terraform -chdir="infra/terraform/$root" init -backend=false -input=false -lockfile=readonly
   terraform -chdir="infra/terraform/$root" validate
 done
 ruff check .
 python3 -m unittest discover -s ci -p 'test_*.py'
-bash -n ci/deploy.sh ci/smoke-test.sh ci/build-images.sh
 ```
-
-Security scanners still inspect the entire Terraform tree. Resource-scoped
-exceptions explain short learning log retention, staging Single-AZ and Insights
-settings, and module connections scanners cannot follow. Private tasks permit
-outbound TCP 443 via NAT for public AWS APIs; that egress has a scoped Trivy
-exception. No unrestricted inbound access is enabled. Review findings from
-new modules against the required policies; existing resource-scoped exceptions
-are retained with the legacy implementation. No scan gates have been disabled.

@@ -18,7 +18,7 @@ resource "aws_iam_role" "codebuild_image_builder" {
 resource "aws_cloudwatch_log_group" "codebuild_image_builder" {
   # checkov:skip=CKV_AWS_338:Learning environments intentionally retain logs for 14-30 days; production retention must follow organisational requirements.
   name              = "/aws/codebuild/webtech-shared-image-builder"
-  retention_in_days = 14
+  retention_in_days = var.build_log_retention_days
   kms_key_id        = aws_kms_key.application_logs.arn
 }
 

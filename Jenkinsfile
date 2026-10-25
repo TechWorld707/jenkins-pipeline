@@ -15,7 +15,7 @@ pipeline {
     string(name: 'STAGING_CLUSTER', defaultValue: 'webtech-staging')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: 'webtech-staging-frontend')
     string(name: 'STAGING_BACKEND_SERVICE', defaultValue: 'webtech-staging-backend')
-    string(name: 'STAGING_URL', defaultValue: '', description: 'Staging CloudFront HTTPS URL')
+    string(name: 'STAGING_URL', defaultValue: 'https://d1d5yx6wu274gs.cloudfront.net', description: 'Staging CloudFront HTTPS URL')
     string(name: 'STAGING_APPROVERS', defaultValue: '', description: 'Comma-separated Jenkins users or groups allowed to approve staging')
   }
   environment {
@@ -32,7 +32,11 @@ pipeline {
     }
     stage('Verify build configuration') {
       when { branch 'main' }
-      steps { sh 'python3 ci/jenkins-release.py config' }
+      steps {
+        sh 'python3 ci/jenkins-release.py config'
+        // Fail before publishing immutable tags if deployment settings are missing.
+        sh 'python3 ci/jenkins-release.py staging-config'
+      }
     }
     stage('CodeBuild: build, scan, publish') {
       when { branch 'main' }

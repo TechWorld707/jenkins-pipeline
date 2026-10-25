@@ -1,5 +1,12 @@
 # Set up the AWS Terraform plan role and connect it to GitHub
 
+> Rebuild note: the original application stack has been retired. The current
+> GitHub plan/apply workflow targets `shared/`; see [the active infrastructure
+> guide](README.md). Use the proposed policy sources under `iam/` for the new state
+> keys. The shared-lock fix is installed for the plan role; broader apply-role
+> updates are pending explicit security approval. State-key examples below target
+> the shared stack.
+
 This guide records the console steps used for this repository. It creates a
 GitHub identity provider, a Terraform plan role, and its permission policies,
 then connects the role to GitHub Actions. It does not create the apply role or
@@ -16,8 +23,8 @@ apply infrastructure.
 | Managed policy | `ReadOnlyAccess` |
 | Inline policy | `TerraformPlanBackendAccess` |
 | State bucket | `techworld707-jenkins-pipeline-tfstate-671662643382` |
-| State object | `jenkins-pipeline/app/terraform.tfstate` |
-| Lock object | `jenkins-pipeline/app/terraform.tfstate.tflock` |
+| State object | `jenkins-pipeline/shared/terraform.tfstate` |
+| Lock object | `jenkins-pipeline/shared/terraform.tfstate.tflock` |
 
 Confirm the AWS account and repository before copying the examples. You need
 permission to manage IAM roles/providers in AWS and Actions secrets/variables in
@@ -166,7 +173,7 @@ access, while this inline policy adds writes only to the temporary lock object.
         "s3:PutObject",
         "s3:DeleteObject"
       ],
-      "Resource": "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/app/terraform.tfstate.tflock"
+      "Resource": "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/shared/terraform.tfstate.tflock"
     }
   ]
 }

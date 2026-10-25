@@ -24,15 +24,15 @@ Need a Jenkins server first? Follow the [local Docker setup](../jenkins/README.m
    to webtech-shared-image-builder; allow GetObject for the report prefix and the ECS
    operations below. Do not place AWS keys in source files.
 4. Provision the shared and environment stacks using the reviewed plans described
-   in the infrastructure setup guide below. The existing GitHub plan/apply workflow
-   still manages only legacy infrastructure. The shared stack supplies CodeBuild
+   in the infrastructure setup guide below. The GitHub plan/apply workflow now
+   targets shared infrastructure. The shared stack supplies CodeBuild
    AWS_ACCOUNT_ID and SCAN_REPORT_BUCKET and grants its scoped ECR/report access.
    Configure CodeBuild GitHub source authentication before the initial build.
 5. Supply CODEBUILD_PROJECT and REPORT_BUCKET from the shared Terraform outputs.
    Supply STAGING_CLUSTER, STAGING_FRONTEND_SERVICE, STAGING_BACKEND_SERVICE and
    STAGING_URL from staging outputs. Set STAGING_APPROVERS to comma-separated
    Jenkins user IDs or group names allowed to approve deployment. Staging settings
-   are validated after image publication. Blank approval settings fail closed.
+   are validated before image publication and checked again before approval. Blank approval settings fail closed.
    Restrict who can edit job parameters. Jenkins administrators can also approve.
 
 ## Webhook configuration
@@ -48,6 +48,9 @@ needed. Direct pushes also trigger builds, so protect main to require PR merges.
 Repository changes do not configure the live webhook or Jenkins job.
 
 ## Approval and event tracking
+
+Staging configuration is checked before image publication so missing approvers
+or a missing URL do not leave a published SHA that must be rebuilt on retry.
 
 Scan reports and release.json are archived immediately after successful ECR
 publication. Open **Approve staging deployment** in the Jenkins build, review the
@@ -82,8 +85,8 @@ RegisterTaskDefinition, UpdateService, and PassRole limited to the task/executio
 roles used by those services (PassedToService ecs-tasks.amazonaws.com).
 RegisterTaskDefinition needs wildcard resource where no revision exists yet;
 limit other writes to the intended services. Pipeline creation does not install
-Jenkins credentials or AWS policies. Existing IAM policy JSON targets legacy resource names; update the deployment
-roles for the new shared and environment resources before provisioning.
+Jenkins credentials or AWS policies. The proposed GitHub role policy updates target the new shared resources; their
+installation in AWS remains pending explicit security approval.
 
 ## Gates and report folder
 
@@ -153,18 +156,12 @@ it only during CodeBuild and approved staging deployment; it checks the identity
 with STS before each operation. Host AWS profiles are not automatically available
 inside the container. See [local authentication setup](../jenkins/README.md#aws-authentication).
 
-## Currently deployed build resources
 
-Jenkins defaults to the existing `webtech-image-builder` CodeBuild project and
-`webtech-alb-logs-671662643382` report bucket in eu-west-2. The config stage prints
-these resolved settings before starting CodeBuild. These are the legacy build
-resources; new shared-stack names do not exist merely because Terraform files
-were merged. After provisioning the shared stack, update both job parameters
-using its outputs. Build parameters can override the Jenkinsfile defaults.
+## Active shared build resources
 
-If a run reports ResourceNotFoundException for webtech-shared-image-builder,
-open main → Build with Parameters, explicitly set CODEBUILD_PROJECT to
-webtech-image-builder and REPORT_BUCKET to webtech-alb-logs-671662643382, and start
-a new build. Changing local files does not change a job until they reach main.
-A GitHub commit-status 403 from a read-only repository token is separate from
-CodeBuild execution and does not explain a missing AWS project.
+Use CODEBUILD_PROJECT `webtech-shared-image-builder` and REPORT_BUCKET
+`webtech-shared-reports-671662643382`. The old build project, ECR repositories and
+report bucket have been deleted. Update saved Jenkins build parameters as well
+as merging the Jenkinsfile defaults. Use staging Terraform outputs for its URL
+and service settings. GitHub Terraform role policy updates remain pending
+separate security approval; see the infrastructure guide.
