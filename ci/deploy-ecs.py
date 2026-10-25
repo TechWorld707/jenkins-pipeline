@@ -53,7 +53,7 @@ for service, expected in updates:
         raise SystemExit(f'{service} did not reach the requested release (possible rollback)')
 url = os.environ[f'{stage}_URL'].rstrip('/')
 # Exercise the frontend and backend health endpoint through the environment URL.
-for path in ('/', '/healthz'):
+for path in ('/', '/healthz', '/api/health/db'):
     for attempt in range(12):
         try:
             with urllib.request.urlopen(url + path, timeout=15) as response:

@@ -1,213 +1,129 @@
-# Terraform security settings
+# Staging and production infrastructure
 
-The network foundation uses eu-west-2a and eu-west-2b, disables automatic public
-IPv4 assignment, denies all traffic through the default security group, and
-records all VPC flows in a KMS-encrypted CloudWatch log group for 365 days.
-Before changing the pinned zones in an existing deployment, review the plan for
-subnet replacement.
+```text
+infra/terraform/
+├── bootstrap/                 # Existing protected state bucket
+├── shared/                    # Shared ECR, CodeBuild, reports and build IAM
+├── modules/
+│   ├── network/               # VPC, two AZs, subnets, NAT and routes
+│   ├── ecs/                   # Cluster, services, initial tasks and IAM
+│   ├── database/              # Private RDS and managed credentials
+│   ├── ingress/               # ALB, CloudFront, WAF and access logs
+│   └── observability/         # Encrypted VPC flow logs
+├── environments/
+│   ├── staging/               # One task/service, Single-AZ RDS, 14-day logs
+│   └── production/            # Two tasks/service, Multi-AZ RDS, 30-day logs
+└── legacy/                    # Existing stack, unchanged remote state key
+```
 
-CloudFront is the public website entry point, using its default HTTPS domain.
-HTTP viewer requests redirect to HTTPS. AWS WAF on CloudFront uses the AWS Common,
-Known Bad Inputs, and Amazon IP Reputation managed rule groups. WAF has ongoing
-charges; CloudFront uses PriceClass_100. Caching is disabled to avoid caching API
-responses or user sessions; query strings, headers, and cookies reach the origin.
+## Existing deployment and state
 
-The ALB is an internet-facing origin on HTTP port 80, restricted to the CloudFront
-origin-facing managed prefix list. Its default response is 403; a listener rule
-forwards only requests with the shared X-Origin-Verify header. CloudFront-to-ALB
-traffic remains unencrypted for this learning setup. Frontend targets use port
-8080. The ALB WAF exception now documents upstream protection, not omitted WAF.
+The former root configuration is preserved in `legacy/`. Its S3 state key remains
+`jenkins-pipeline/app/terraform.tfstate`; moving files does not move or replace
+AWS resources. The existing GitHub approved plan/apply workflow now uses that
+folder. It also validates every new root. It does not automatically deploy the
+new stacks. Do not run Terraform from the former root: local `.terraform/` data
+there refers to the old stack; run from `legacy/` after initialising it instead.
 
-Before planning in GitHub, create repository Actions secret
-`CLOUDFRONT_ORIGIN_TOKEN` with a random 32-128 character value consisting of letters,
-digits, underscores, or hyphens (for example, generate with `openssl rand -hex 32`).
-For local plans supply it as `TF_VAR_cloudfront_origin_token`. Do not commit it.
-Terraform stores this value in state and saved plans; sensitive marking only
-redacts normal CLI output. Rotate the value in both origin and listener via Terraform.
+The new stacks have separate state keys and distinct resource names. They are
+new parallel environments, not an automatic adoption of the old stack. No state
+was read, edited or migrated by this refactor. Deploying them while retaining the
+legacy stack incurs additional costs. Inventory the existing state with
+`terraform -chdir=infra/terraform/legacy state list` after initialising it. If you
+want to reuse existing resources, design and review imports/state transfers
+before applying; never import one resource into two active states. Keep legacy
+until the new environments have passed testing and a separate retirement plan
+has been reviewed. ALB/RDS deletion protection remains enabled.
 
-The plan role needs CloudFront/WAF read permissions and
-`ec2:DescribeManagedPrefixLists`. The apply role also needs CloudFront distribution
-management/tagging, WAFv2 Web ACL management/tagging and association permissions,
-and ALB listener-rule management. CloudFront-scoped WAF uses the aliased AWS
-provider in us-east-1; policies restricted to eu-west-2 must account for this.
-These AWS IAM permissions have not been installed by this change.
+## Provisioning order
 
-After deployment, `terraform output -raw frontend_url` gives the website address.
-Verify normal pages/API requests through CloudFront and that direct ALB requests
-are denied. AWS managed rules may block legitimate application inputs; review WAF
-metrics and sampled requests before adjusting rules. CloudFront access-log storage
-and a second origin for failover are deferred and documented with scoped scan
-exceptions. A custom domain and origin certificate are needed to enable origin
-HTTPS; the default CloudFront viewer certificate does not encrypt the origin hop.
+1. Keep the existing bootstrap backend. Update each `backend.hcl` for your account
+   before using a different account. Backend and deployment roles require access
+   to each new state prefix and its `.tflock`, and to the state encryption key.
+2. Initialise and plan shared resources:
 
-The bootstrap stack enables state-bucket access logging, EventBridge notifications,
-a lifecycle rule to abort incomplete multipart uploads, and KMS encryption with
-key rotation. Existing state versions are retained; changing default encryption
-does not re-encrypt old objects. Backend users, including the CI role, need
-kms:Encrypt, kms:Decrypt, and kms:GenerateDataKey on the state KMS key, alongside
-their existing S3 permissions. Apply bootstrap changes before relying on these
-settings in the application stack. New KMS keys and log storage incur AWS charges.
+   ```sh
+   terraform -chdir=infra/terraform/shared init -backend-config=backend.hcl
+   terraform -chdir=infra/terraform/shared plan -out=tfplan
+   # Review before running: terraform -chdir=infra/terraform/shared apply tfplan
+   ```
 
-## Scoped Checkov exceptions
+3. Configure CodeBuild GitHub authentication and update AWS roles for the new
+   `webtech-shared-*` resources. Existing IAM policy JSON under `iam/` targets
+   legacy names and is not sufficient for the new stacks. The new infrastructure
+   also needs ECS, Cloud Map, NAT/EIP, IAM/PassRole, RDS, logging and edge permissions.
+   No account IAM policies or Jenkins credentials are installed by this change.
+4. Run the shared image-builder at the desired commit to publish the initial
+   scanned frontend/backend images. This first build is done before the first
+   Jenkins deployment because ECS services do not exist yet. Read both immutable
+   image references from its release manifest. Do not use `latest`.
+5. For each environment, supply `TF_VAR_cloudfront_origin_token` with a different
+   random 32–128 character token and `TF_VAR_images` as a JSON object containing
+   `frontend` and `backend` ECR references ending in `@sha256:<64 hex digits>`.
+   These inputs have no defaults. Never commit tokens, credentials or state.
 
-- CKV2_AWS_5 on the four application security groups: this checkout defines only
-  network foundations. Remove each exception when adding its load balancer,
-  frontend service, backend service, or database and attach the group there.
-- CKV_AWS_144 on state and access-log buckets: this backend is single-region.
-  Versioning protects prior state, but does not provide regional disaster
-  recovery. Cross-region replication remains unimplemented and needs a replica
-  bucket and replication role with appropriate KMS permissions.
-- CKV_AWS_18 on the access-log destination: logging that bucket to itself would
-  cause recursive logging.
-- CKV_AWS_145 on the access-log destination: S3 server access-log delivery to S3
-  requires SSE-S3 on the destination, per the
-  [AWS documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html).
+   ```sh
+   terraform -chdir=infra/terraform/environments/staging init -backend-config=backend.hcl
+   terraform -chdir=infra/terraform/environments/staging plan -out=tfplan
+   # Review before running: terraform -chdir=infra/terraform/environments/staging apply tfplan
+   terraform -chdir=infra/terraform/environments/staging output -json jenkins_parameters
+   ```
 
-Trivy has the same resource-scoped exception for AVD-AWS-0132 on the access-log
-bucket's encryption configuration in `bootstrap/logging.tf`. SSE-S3 remains
-enabled; the state bucket continues to use its customer-managed KMS key. The
-HIGH/CRITICAL scan gate remains enabled for all other findings.
+   Repeat for `production` using its folder and its own origin token. Save initial
+   image inputs securely for subsequent plans. Saved plans and state contain
+   sensitive data. Production should initially use a release already verified in
+   staging. New infrastructure applies remain explicit reviewed operations.
+6. Set Jenkins CODEBUILD_PROJECT and REPORT_BUCKET from shared outputs. Set
+   STAGING_* and PRODUCTION_* from each environment's `jenkins_parameters` output.
+   Restrict Jenkins PassRole to the task and execution role ARNs in those outputs.
+   Keep the existing required production approver configuration.
 
-EventBridge forwarding is enabled; add rules and consumers for any desired
-alerting or automated responses.
+## Application deployment ownership
 
-## Local checks
+Jenkins builds/scans once, deploys digest references to staging, checks `/`,
+`/healthz` and `/api/health/db`, then requires approval before deploying the same
+manifest to production. `ci/deploy.sh` wraps the existing Python deployment code;
+`ci/smoke-test.sh <url>` can independently check an environment.
+
+Terraform creates initial task definitions and services. Services ignore changes
+to `task_definition` so infrastructure applies do not roll back Jenkins releases.
+When changing container settings, secrets or task roles in Terraform, coordinate
+an explicit service deployment to the updated task definition; a Terraform apply
+alone will not switch a service to that revision. Keep task settings identical
+across both services' definitions and the live definitions Jenkins copies.
+
+Frontend and backend remain separate services. Service Connect provides the
+`backend:8000` alias expected by nginx. Both services use 0.5 vCPU / 1 GiB task
+sizes to leave room for its proxy; measure memory before reducing sizes. Tasks
+are private and use NAT for ECR, Secrets Manager and CloudWatch. Staging has one
+NAT; production has one per AZ. NAT gateways have ongoing charges even when idle.
+
+RDS owns the password; ECS injects its username/password fields into the backend.
+The app still accepts DATABASE_URL for local Compose. RDS connections require TLS;
+`sslmode=require` encrypts connections but does not verify the server certificate.
+For stronger identity verification, package the RDS CA bundle and use verify-full.
+Secret rotation requires a task restart. Master credentials and create-on-startup
+tables remain learning shortcuts; production should use an application DB role
+and explicit database migrations. CloudFront-to-ALB HTTP remains the existing
+learning setup; use an origin domain/certificate for end-to-end HTTPS.
+
+## Verification
 
 ```sh
 terraform fmt -check -recursive infra/terraform
-terraform -chdir=infra/terraform validate
-terraform -chdir=infra/terraform/bootstrap validate
-checkov -d infra/terraform --framework terraform
+for root in bootstrap legacy shared environments/staging environments/production; do
+  terraform -chdir="infra/terraform/$root" init -backend=false -input=false -lockfile=readonly
+  terraform -chdir="infra/terraform/$root" validate
+done
+ruff check .
+python3 -m unittest discover -s ci -p 'test_*.py'
+bash -n ci/deploy.sh ci/smoke-test.sh ci/build-images.sh
 ```
 
-## GitHub plan review and approved apply
-
-For console instructions, follow the [AWS role and GitHub setup guide](GITHUB_AWS_ROLE_SETUP.md).
-
-The workflow plans `infra/terraform` after all CI checks pass. It runs on trusted
-same-repository pull requests, main pushes, and manual runs. Fork pull requests
-do not receive AWS credentials. The separate `bootstrap` stack is not applied
-by this workflow; provision the backend and its access permissions first.
-
-Configure these repository settings before enabling it:
-
-1. Under **Settings > Environments**, create `terraform-production`. Configure
-   **Required reviewers**, prevent self-review where appropriate, disable
-   protection-rule bypass where available, and restrict deployment branches to
-   `main`. An environment name in YAML alone does not require approval. Required
-   reviewers availability depends on your GitHub plan and repository visibility;
-   do not enable apply without an enforceable approval gate.
-2. In that environment only, create secret `AWS_APPLY_ROLE_TO_ASSUME` containing
-   the deployment role ARN. Its AWS OIDC trust must restrict the audience to
-   `sts.amazonaws.com` and the subject to
-   `repo:TechWorld707/jenkins-pipeline:environment:terraform-production`.
-   Grant only the AWS write permissions needed by this stack, plus backend
-   state, lock-file, and KMS permissions. Do not store this secret at repository
-   level, and do not let the plan role assume the apply role.
-3. Under **Settings > Secrets and variables > Actions**, set repository secret
-   `AWS_ROLE_TO_ASSUME` to a separate plan role ARN. Give it resource-read
-   permissions plus backend state/KMS read access and lock-file access; no
-   infrastructure write access. Its OIDC trust should allow this repository's
-   `pull_request` and `ref:refs/heads/main` subjects with audience
-   `sts.amazonaws.com`. Only trusted collaborators should push branches in this
-   repository: planning executes the submitted Terraform configuration.
-4. Set repository variable `AWS_REGION=eu-west-2` and
-   `TF_PLAN_ENABLED=true`. Manual deployment runs must select `main`.
-5. Protect `main` with a ruleset requiring pull requests, approving reviews,
-   dismissal of stale approvals, and successful CI checks including Terraform
-   plan. Restrict bypasses and direct pushes. This enforces approval before merge;
-   the workflow itself cannot enforce branch review rules.
-
-Review a pull request under **Checks > Terraform plan > Details**, then open the
-workflow summary or download `terraform-plan-report` for `terraform-plan.txt`.
-Approve the PR after reviewing additions, updates, and deletions, then merge it.
-The merge runs CI and creates a fresh plan against main and current AWS state.
-Review this final report, then use **Actions > workflow run > Review deployments
-> terraform-production > Approve and deploy**. The apply job uses the saved binary
-plan from that same run; it does not generate an unreviewed replacement plan.
-No-change plans do not request deployment approval. Apply jobs are serialized,
-and a superseded main commit is rejected before applying. Terraform state locking
-also prevents simultaneous state writes. If the saved plan becomes stale or its
-one-day artifact expires, run the workflow again on main and review the new plan.
-
-Plan artifacts can contain sensitive state values even when the text report
-redacts them. Limit repository/Actions access and retain artifacts for one day.
-GitHub report upload and AWS OIDC/apply require an actual configured workflow run
-for end-to-end verification.
-
-## Logging and scan corrections
-
-ALB access logs go to a private, versioned SSE-S3 bucket with 30-day retention.
-SSE-S3 is required for ALB log delivery. Resource-scoped exceptions document the
-terminal log bucket's lack of recursive access logging, customer-managed KMS,
-and cross-region replication. EventBridge notifications are enabled without
-consumers. ALB and RDS deletion protection must be disabled in a reviewed apply
-before destroying them; the log bucket must also be emptied of versions before
-removal.
-
-WAF uses explicit managed rule blocks, including Known Bad Inputs and Anonymous
-IP List, so Checkov can verify the protections. Anonymous IP List can block VPN,
-proxy, or hosting-provider traffic. WAF request logs go to CloudWatch in us-east-1
-with 365-day retention; authorization, cookie, and origin-verification headers
-are redacted in those logs. Sampled requests are separate and are not covered by
-logging redaction. WAF logs use CloudWatch service encryption with a documented
-customer-key exception. CloudFront sets index.html as its default root object
-and attaches security response headers. The ALB redirect exception reflects
-HTTPS termination at CloudFront, and the geography exception intentionally allows
-worldwide viewers. The default CloudFront certificate remains intentional.
-
-The new learning RDS instance is pinned to PostgreSQL 18.3 with a postgres18
-parameter group. AWS's orderable-instance API confirmed Performance Insights,
-enhanced monitoring, and IAM authentication support for db.t3.micro in eu-west-2.
-Multi-AZ is enabled for failover practice, with one-day automated backup
-retention for point-in-time recovery. Seven-day retention was rejected by the
-account Free plan; one day is the minimum nonzero setting and still needs AWS
-deployment verification for this account. Restore creates a separate database instance;
-it does not rewind the existing database. Final snapshots remain disabled. Performance Insights
-uses a customer-managed KMS key and seven-day retention; enhanced monitoring runs
-at 60-second intervals. PostgreSQL and upgrade logs are exported to KMS-encrypted
-CloudWatch groups with 365-day retention. Query logging records all statements;
-it can capture sensitive SQL values, so use test data and review log volume.
-The parameter group explicitly requires SSL. Application database connections
-must support TLS (prefer sslmode=verify-full with the RDS CA bundle). Enabling IAM
-authentication does not replace password authentication automatically.
-
-These resources require additional deployment-role permissions for S3 logging
-configuration, WAF logging/CloudWatch log delivery in us-east-1, KMS key creation
-and use, RDS parameter groups, monitoring-role creation/attachment, and PassRole
-limited to the RDS monitoring role. Permissions must be reviewed before the next
-apply; this change does not install IAM policies or apply infrastructure. Logging,
-monitoring, and KMS incur AWS usage charges.
-
-
-## GitHub apply permissions
-
-The apply role retains inline policy `TerraformApplyStackAccess` (the base
-`iam/github-terraform-apply-policy.json`) and now has three supplemental managed
-policies: `GitHubTerraformApplyRdsAccess`, `GitHubTerraformApplyEdgeAccess`, and
-`GitHubTerraformApplyLoggingAccess`. Their source JSON files are in `iam/`.
-They cover the RDS instance/subnet group, project ALB/listeners, CloudFront,
-WAF and its log delivery, the ALB log bucket, and application logging key.
-The KMS key must carry `Project=webtech-application-logs`; key management is
-restricted by that tag. Commit the application-logging.tf tag before retrying.
-CloudFront creates use wildcard resources where resource IDs do not yet exist;
-updates use account-specific resource ARNs. Policies are split to respect IAM
-policy size limits. These permissions were installed in AWS separately from
-Terraform; changing JSON files alone does not update AWS IAM.
-
-CodeBuild image-builder logs use the application customer-managed KMS key and
-365-day retention. The key policy allows CloudWatch Logs encryption only for the
-configured RDS log groups and the exact CodeBuild log group. CKV_AWS_316 is scoped
-to this project because buildspec.yml runs Docker builds and Trivy containers
-through the Docker daemon. Only trusted source and buildspec changes should run
-with this privileged build role. The logging key policy and log group must be
-applied before expecting encrypted build logs. Retention can increase storage costs.
-
-The supplemental managed policy `GitHubTerraformApplyCodebuildAccess` is attached
-to `GitHubTerraformApplyRole`; its source is
-`iam/github-terraform-apply-codebuild-policy.json`. It permits Terraform to manage
-only the webtech-image-builder CodeBuild project, its exact log group, and the
-webtech-codebuild-image-builder service role and inline policy. PassRole is
-restricted to that role and codebuild.amazonaws.com. This does not grant the
-apply role permission to start builds or change CodeBuild source credentials.
-JSON changes require a separate IAM policy update to take effect in AWS.
+Security scanners still inspect the entire Terraform tree. Resource-scoped
+exceptions explain short learning log retention, staging Single-AZ and Insights
+settings, and module connections scanners cannot follow. Private tasks permit
+outbound TCP 443 via NAT for public AWS APIs; that egress has a scoped Trivy
+exception. No unrestricted inbound access is enabled. Review findings from
+new modules against the required policies; existing resource-scoped exceptions
+are retained with the legacy implementation. No scan gates have been disabled.

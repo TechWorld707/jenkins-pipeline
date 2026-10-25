@@ -26,3 +26,8 @@ venv/
 *.log
 .DS_Store
 Thumbs.db
+# Reviewed non-secret environment sizing
+!infra/terraform/environments/staging/terraform.tfvars
+!infra/terraform/environments/production/terraform.tfvars
+# Saved plans may contain secrets
+tfplan

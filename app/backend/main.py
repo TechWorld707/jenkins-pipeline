@@ -5,12 +5,26 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import DateTime, Integer, String, create_engine, text
+from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL must point to PostgreSQL.")
+    # ECS injects individual fields from the RDS-managed secret. URL.create
+    # safely escapes passwords containing punctuation without storing a URL in state.
+    required = ("DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD")
+    if not all(os.getenv(key) for key in required):
+        raise RuntimeError("Supply DATABASE_URL or DB_HOST, DB_NAME, DB_USER and DB_PASSWORD.")
+    DATABASE_URL = URL.create(
+        "postgresql+psycopg",
+        username=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"],
+        host=os.environ["DB_HOST"],
+        port=5432,
+        database=os.environ["DB_NAME"],
+        query={"sslmode": os.getenv("DB_SSLMODE", "require")},
+    ).render_as_string(hide_password=False)
 
 # Accept the common PostgreSQL URL forms and select psycopg 3 explicitly.
 if DATABASE_URL.startswith("postgres://"):

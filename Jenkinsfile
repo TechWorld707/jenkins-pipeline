@@ -7,8 +7,8 @@ pipeline {
     timeout(time: 120, unit: 'MINUTES')
   }
   parameters {
-    string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-image-builder')
-    string(name: 'REPORT_BUCKET', defaultValue: 'webtech-alb-logs-671662643382')
+    string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-shared-image-builder')
+    string(name: 'REPORT_BUCKET', defaultValue: 'webtech-shared-reports-671662643382')
     string(name: 'STAGING_CLUSTER', defaultValue: '')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: '')
     string(name: 'STAGING_BACKEND_SERVICE', defaultValue: '')
@@ -46,7 +46,7 @@ pipeline {
     }
     stage('Deploy and test staging') {
       when { branch 'main' }
-      steps { sh 'python3 ci/deploy-ecs.py STAGING' }
+      steps { sh 'bash ci/deploy.sh STAGING' }
     }
     stage('Approve production') {
       when { branch 'main' }
@@ -61,7 +61,7 @@ pipeline {
     }
     stage('Promote and test production') {
       when { branch 'main' }
-      steps { sh 'python3 ci/deploy-ecs.py PRODUCTION' }
+      steps { sh 'bash ci/deploy.sh PRODUCTION' }
     }
   }
   post {
