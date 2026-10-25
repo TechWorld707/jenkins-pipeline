@@ -129,14 +129,14 @@ Merges to main and same-repository PRs plan all three stacks. PRs never apply.
 Manual runs can select one stack or all. The three roots are independently
 planned/applied; selecting all does not sequence provisioning dependencies. Use
 shared → initial image build → staging → production for a clean installation.
-A missing private input fails that environment's plan; other matrix entries
+A missing private input fails that environment's plan; other stack jobs
 continue. An infrastructure merge may also trigger Jenkins via webhook, so during
 initial provisioning use a manual build-only run until the services exist.
 
 ## Review and approve a routine infrastructure change
 
 1. Merge the reviewed change to main; open **Actions > WebTech CI and security scans**.
-2. Open each **Terraform (stack) > Plan stack infrastructure** job. Read the
+2. Open each **shared/staging/production infrastructure > Plan stack infrastructure** job. Read the
    workflow summary and download its `terraform-plan-STACK-ATTEMPT` artifact.
 3. Check additions, changes, replacements and deletions for that stack.
 4. Select **Review deployments**, tick only the reviewed environment(s), and choose
@@ -151,3 +151,17 @@ old waiting runs so newer runs can proceed. GitHub may replace an older pending
 run when another is queued; it does not cancel the active approval/apply run.
 For an expired/stale plan, run the workflow again and review the new plan. Do not
 force-unlock a running operation or disable locking to bypass an error.
+
+## Workflow graph
+
+The workflow uses three explicitly named branches instead of a collapsed matrix:
+
+- shared infrastructure → Plan shared infrastructure → Approve and apply shared infrastructure
+- staging infrastructure → Plan staging infrastructure → Approve and apply staging infrastructure
+- production infrastructure → Plan production infrastructure → Approve and apply production infrastructure
+
+Expand each reusable workflow branch to view its jobs. Each plan has a separate
+artifact and each changed main-branch plan has its own protected apply approval.
+A disabled environment displays Setup required instead of running a plan; enable
+its repository variable after providing its private inputs. No-change plans skip
+apply, and pull requests never apply.
