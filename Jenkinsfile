@@ -9,9 +9,9 @@ pipeline {
     timeout(time: 120, unit: 'MINUTES')
   }
   parameters {
-    string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-shared-image-builder')
+    string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-image-builder')
     string(name: 'AWS_CREDENTIALS_ID', defaultValue: 'jenkins-aws', description: 'Jenkins AWS credential ID')
-    string(name: 'REPORT_BUCKET', defaultValue: 'webtech-shared-reports-671662643382')
+    string(name: 'REPORT_BUCKET', defaultValue: 'webtech-alb-logs-671662643382')
     string(name: 'STAGING_CLUSTER', defaultValue: 'webtech-staging')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: 'webtech-staging-frontend')
     string(name: 'STAGING_BACKEND_SERVICE', defaultValue: 'webtech-staging-backend')

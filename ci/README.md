@@ -152,3 +152,19 @@ The AWS_CREDENTIALS_ID build parameter selects this entry. The Jenkinsfile binds
 it only during CodeBuild and approved staging deployment; it checks the identity
 with STS before each operation. Host AWS profiles are not automatically available
 inside the container. See [local authentication setup](../jenkins/README.md#aws-authentication).
+
+## Currently deployed build resources
+
+Jenkins defaults to the existing `webtech-image-builder` CodeBuild project and
+`webtech-alb-logs-671662643382` report bucket in eu-west-2. The config stage prints
+these resolved settings before starting CodeBuild. These are the legacy build
+resources; new shared-stack names do not exist merely because Terraform files
+were merged. After provisioning the shared stack, update both job parameters
+using its outputs. Build parameters can override the Jenkinsfile defaults.
+
+If a run reports ResourceNotFoundException for webtech-shared-image-builder,
+open main → Build with Parameters, explicitly set CODEBUILD_PROJECT to
+webtech-image-builder and REPORT_BUCKET to webtech-alb-logs-671662643382, and start
+a new build. Changing local files does not change a job until they reach main.
+A GitHub commit-status 403 from a read-only repository token is separate from
+CodeBuild execution and does not explain a missing AWS project.
