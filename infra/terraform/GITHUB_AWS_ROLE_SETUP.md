@@ -64,6 +64,19 @@ No AWS IAM role/policy changes are installed by this code change. Trust template
 alone do not create roles or permissions. The old apply-role trust allowed only
 `terraform-production`; it cannot assume credentials from shared or staging gates.
 
+## Enable environment planning after setup
+
+Staging and production planning are opt-in during a clean installation. Until
+repository variables `TF_STAGING_ENABLED` and `TF_PRODUCTION_ENABLED` are `true`,
+the workflow shows a **Setup required** summary and runs no Terraform for that
+environment. Shared planning remains controlled by `TF_PLAN_ENABLED`.
+
+In **Settings > Secrets and variables > Actions**, configure the secrets below,
+then add each environment's enable variable on the **Variables** tab with value
+`true`. Enable staging first and production when it is ready. Explicitly selecting
+a disabled stack in Run workflow also shows the setup summary; it does not bypass
+this setting. Once enabled, missing secrets remain a failure and block apply.
+
 ## Private inputs for staging and production plans
 
 Set these as **repository Actions secrets**, since plans run before the protected
@@ -103,9 +116,9 @@ The previous images were deleted. ECS creation needs existing application images
    configuration checks and approval/deployment stages. Set CodeBuild/report
    names from the new shared outputs. Download `release.json` after success.
 4. Set both image-map secrets using that scanned release. Set the two origin tokens.
-5. Run the GitHub workflow for **staging**, review its plan and approve
+5. Set `TF_STAGING_ENABLED=true`. Run the GitHub workflow for **staging**, review its plan and approve
    **terraform-staging**. Copy its new `jenkins_parameters` output to Jenkins.
-6. Run it for **production**, review its plan and approve **terraform-production**.
+6. Set `TF_PRODUCTION_ENABLED=true`. Run it for **production**, review its plan and approve **terraform-production**.
    Copy the new production outputs to Jenkins.
 7. For later application changes, run Jenkins with **BUILD_ONLY unchecked** and
    both URLs/approver lists configured. Jenkins deploys to staging after approval,

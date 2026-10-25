@@ -6,6 +6,10 @@ on:
       stack:
         required: true
         type: string
+      enabled:
+        description: Enable planning only after this stack has its private inputs configured
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -18,8 +22,24 @@ env:
   STACK: ${{ inputs.stack }}
 
 jobs:
+  setup-required:
+    name: Setup required for ${{ inputs.stack }}
+    if: ${{ !inputs.enabled }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain why infrastructure planning is disabled
+        run: |
+          {
+            echo "## $STACK infrastructure is not enabled"
+            echo "No Terraform commands ran for this stack."
+            echo "Configure TF_${STACK^^}_ORIGIN_TOKEN and TF_${STACK^^}_IMAGES repository secrets."
+            echo "Then set repository variable TF_${STACK^^}_ENABLED=true to enable its plan and approval gate."
+            echo "For a fresh installation: shared infrastructure, Jenkins BUILD_ONLY image publication, then environment infrastructure."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   plan:
     name: Plan ${{ inputs.stack }} infrastructure
+    if: ${{ inputs.enabled }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

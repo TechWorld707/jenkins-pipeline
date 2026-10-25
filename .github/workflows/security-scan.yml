@@ -480,4 +480,5 @@ jobs:
     uses: ./.github/workflows/terraform-stack.yml
     with:
       stack: ${{ matrix.stack }}
+      enabled: ${{ matrix.stack == 'shared' || (matrix.stack == 'staging' && vars.TF_STAGING_ENABLED == 'true') || (matrix.stack == 'production' && vars.TF_PRODUCTION_ENABLED == 'true') }}
     secrets: inherit
