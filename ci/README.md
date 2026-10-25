@@ -7,6 +7,8 @@ GitHub CI runs independently; Jenkins does not wait for the whole workflow or it
 Terraform approval. Require the desired CI checks before merge using main branch
 protection. This pipeline does not deploy production.
 
+Need a Jenkins server first? Follow the [local Docker setup](../jenkins/README.md).
+
 ## Setup before the first run
 
 1. Use a Jenkins Multibranch Pipeline with this repository's Jenkinsfile and a
@@ -141,3 +143,12 @@ approve an older release after a newer release has been deployed by another job.
 The failure-path test uses fake Docker/AWS commands and verifies frontend failure,
 backend failure, and scanner errors cannot reach any AWS upload or push stage.
 An actual Jenkins/CodeBuild/ECS run is still required for end-to-end validation.
+
+## Jenkins AWS credential binding
+
+Install the AWS Credentials plugin (included in `jenkins/plugins.txt`) and add an
+**AWS Credentials** entry with ID `jenkins-aws` in the Jenkins credential store.
+The AWS_CREDENTIALS_ID build parameter selects this entry. The Jenkinsfile binds
+it only during CodeBuild and approved staging deployment; it checks the identity
+with STS before each operation. Host AWS profiles are not automatically available
+inside the container. See [local authentication setup](../jenkins/README.md#aws-authentication).
