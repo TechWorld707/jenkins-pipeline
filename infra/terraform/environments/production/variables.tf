@@ -36,7 +36,7 @@ variable "images" {
   type        = map(string)
   description = "Bootstrap frontend and backend images, supplied through TF_VAR_images"
   validation {
-    condition     = alltrue([for c in ["frontend", "backend"] : can(regex("^[0-9]{12}\\.dkr\\.ecr\\.eu-west-2\\.amazonaws\\.com/[^@]+@sha256:[0-9a-f]{64}$", var.images[c]))])
+    condition     = alltrue([for c in ["frontend", "backend"] : can(regex("^[0-9]{12}[.]dkr[.]ecr[.]eu-west-2[.]amazonaws[.]com/[^@]+@sha256:[0-9a-f]{64}$", var.images[c]))])
     error_message = "Supply frontend and backend ECR image digests."
   }
 }

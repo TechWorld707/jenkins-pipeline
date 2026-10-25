@@ -34,7 +34,7 @@
         "s3:GetBucketObjectLockConfiguration",
         "s3:GetBucketOwnershipControls"
       ],
-      "Resource": "arn:aws:s3:::webtech-alb-logs-671662643382"
+      "Resource": "arn:aws:s3:::webtech-shared-reports-671662643382"
     },
     {
       "Sid": "ManageApplicationLogGroups",

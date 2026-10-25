@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageTerraformLock",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/shared/terraform.tfstate.tflock",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/staging/terraform.tfstate.tflock",
+        "arn:aws:s3:::techworld707-jenkins-pipeline-tfstate-671662643382/jenkins-pipeline/production/terraform.tfstate.tflock"
+      ]
+    }
+  ]
+}
