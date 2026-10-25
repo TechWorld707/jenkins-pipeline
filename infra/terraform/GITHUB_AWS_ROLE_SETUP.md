@@ -3,8 +3,9 @@
 > Rebuild note: the original application stack has been retired. The current
 > GitHub plan/apply workflow targets `shared/`; see [the active infrastructure
 > guide](README.md). Use the proposed policy sources under `iam/` for the new state
-> keys. Their installation into the existing roles is pending explicit security
-> approval. The state-key examples below now target the shared stack.
+> keys. The shared-lock fix is installed for the plan role; broader apply-role
+> updates are pending explicit security approval. State-key examples below target
+> the shared stack.
 
 This guide records the console steps used for this repository. It creates a
 GitHub identity provider, a Terraform plan role, and its permission policies,

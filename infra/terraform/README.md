@@ -97,11 +97,12 @@ require separate reviewed plans with their private inputs. The existing protecte
 `terraform-production` GitHub environment remains the approval gate for that shared
 apply job; its name does not mean the production application is applied there.
 
-Policy JSON changes in `iam/` are proposals until installed in AWS. The rebuild's
-update to existing GitHub role policies was rejected by automatic approval review
-because it changes access across state prefixes/resources. It has not been applied.
-The migrated GitHub Terraform job needs that policy review before it can access
-all new backend locks and manage the shared resources. Application deployment via
+The plan role now has GetObject/PutObject/DeleteObject access to the shared state
+lock only, replacing its retired app-lock permission. IAM simulation confirms
+that access. The broader apply-role policy changes in `iam/` remain proposals:
+automatic approval review rejected their installation because they change access
+across state prefixes/resources. They need explicit review before the GitHub
+apply job can manage the new shared infrastructure. Application deployment via
 the current provisioning identity is independent of that blocked role update.
 Old edge/RDS policy sources in `iam/` describe previous supplemental permissions;
 they do not grant the new environment deployment permissions automatically.
