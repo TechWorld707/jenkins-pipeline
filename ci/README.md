@@ -1,7 +1,11 @@
-# Jenkins image build and promotion
+# Jenkins image publication and approved staging deployment
 
-Jenkins owns this delivery pipeline. GitHub's existing security workflow, including
-SonarQube, remains unchanged. CodeBuild runs image scans with Trivy only.
+Merge into main → GitHub webhook → Jenkins → CodeBuild build/scan/report/push
+→ manual staging approval → deploy the same image digests → smoke tests.
+
+GitHub CI runs independently; Jenkins does not wait for the whole workflow or its
+Terraform approval. Require the desired CI checks before merge using main branch
+protection. This pipeline does not deploy production.
 
 ## Setup before the first run
 
@@ -11,8 +15,8 @@ SonarQube, remains unchanged. CodeBuild runs image scans with Trivy only.
    execute trusted code: restrict Jenkinsfile/buildspec edits and main merges.
 2. Install Pipeline, Git, GitHub Branch Source, and Credentials Binding plugins.
    The Linux agent needs Git, Bash, Python 3, and AWS CLI. No Docker is needed on
-   Jenkins; Docker runs in privileged CodeBuild. Configure a Jenkins secret-text
-   credential `github-checks-token` with read access to repository Actions runs.
+   Jenkins; Docker runs in privileged CodeBuild. Install Pipeline: Input Step for
+   manual approval. No github-checks-token credential is required.
 3. Give the Jenkins agent an AWS IAM role (or configure short-lived credentials
    outside this Jenkinsfile). Scope CodeBuild StartBuild, BatchGetBuilds, StopBuild
    to webtech-shared-image-builder; allow GetObject for the report prefix and the ECS
@@ -22,11 +26,44 @@ SonarQube, remains unchanged. CodeBuild runs image scans with Trivy only.
    still manages only legacy infrastructure. The shared stack supplies CodeBuild
    AWS_ACCOUNT_ID and SCAN_REPORT_BUCKET and grants its scoped ECR/report access.
    Configure CodeBuild GitHub source authentication before the initial build.
-5. Supply the Jenkins build parameters. REPORT_BUCKET defaults to the new
-   private shared report bucket. Set separate STAGING_* and PRODUCTION_* ECS clusters,
-   frontend/backend service names, and environment base URLs. Set
-   PRODUCTION_APPROVERS to Jenkins user/group IDs authorised to approve production.
-   Blank settings fail before starting CodeBuild.
+5. Supply CODEBUILD_PROJECT and REPORT_BUCKET from the shared Terraform outputs.
+   Supply STAGING_CLUSTER, STAGING_FRONTEND_SERVICE, STAGING_BACKEND_SERVICE and
+   STAGING_URL from staging outputs. Set STAGING_APPROVERS to comma-separated
+   Jenkins user IDs or group names allowed to approve deployment. Staging settings
+   are validated after image publication. Blank approval settings fail closed.
+   Restrict who can edit job parameters. Jenkins administrators can also approve.
+
+## Webhook configuration
+
+Use the Multibranch job's GitHub Branch Source with a name filter including only
+`main`; disable PR discovery for this job. In GitHub Settings → Webhooks, configure
+`https://<jenkins-host>/github-webhook/` with application/json and push events.
+Configure matching webhook secrets in GitHub and Jenkins, keep SSL verification
+enabled, and ensure GitHub can reach the endpoint. Reuse an automatically managed
+hook if one already exists. Scan the Multibranch job once to discover main.
+Branch Source handles subsequent hooks; a duplicate Jenkinsfile trigger is not
+needed. Direct pushes also trigger builds, so protect main to require PR merges.
+Repository changes do not configure the live webhook or Jenkins job.
+
+## Approval and event tracking
+
+Scan reports and release.json are archived immediately after successful ECR
+publication. Open **Approve staging deployment** in the Jenkins build, review the
+reports and image digests, then select **Deploy to staging** or **Abort**.
+Approval expires after 30 minutes. Rejecting or timing out leaves the images in
+ECR and does not deploy staging. After approval, Jenkins deploys the exact digests
+and checks frontend, backend and database health. No images are rebuilt.
+
+Artifacts record the events:
+- `codebuild-id.txt`: CodeBuild identifier.
+- `release.json`: commit and published image digests.
+- `staging-approval.txt`: approver, UTC approval time, target and manifest.
+- `staging-result.txt`: overall pipeline result and staging status.
+
+Timestamped console logs also show the stages and approving user. Records follow
+Jenkins artifact retention; these are not immutable external audit logs.
+Concurrent builds are serialized, so approval pauses also delay queued builds.
+Avoid competing staging deployments from other jobs during approval.
 
 Staging/production services are provisioned by `infra/terraform/environments/`.
 See [the infrastructure setup guide](../infra/terraform/README.md) for bootstrap
@@ -48,10 +85,9 @@ roles for the new shared and environment resources before provisioning.
 
 ## Gates and report folder
 
-Jenkins checks the exact checkout SHA against the successful main push run of
-security-scan.yml, including any Terraform deployment approval in that run. It
-waits up to 30 minutes, then fails closed. CodeBuild must resolve and check out the
-same SHA, or it refuses to build.
+Jenkins passes its exact checkout SHA to CodeBuild. The build refuses to proceed
+unless its resolved source and checkout match the requested commit. Jenkins also
+checks the completed build and release manifest SHA before offering approval.
 
 Both images are built first. Trivy scans frontend then backend for HIGH/CRITICAL
 package vulnerabilities. A blocking finding or scanner error stops immediately.
@@ -82,22 +118,22 @@ passing scans can exist if a later push/deployment fails.
 
 Staging task definitions are copied from their existing environment-specific
 services, changing only image digests. Jenkins waits for service stability, checks
-that ECS did not roll back to an old task definition, then checks / and /healthz.
-These are smoke tests, not full end-to-end tests. Production requires manual
-approval and reuses the same manifest without rebuilding. Services are updated
+that ECS did not roll back to an old task definition, then checks /, /healthz and /api/health/db.
+These are smoke tests, not full end-to-end tests. Staging requires manual approval and uses the published manifest without
+rebuilding. Production is outside this pipeline. Services are updated
 sequentially; a partial deployment failure stops the pipeline and needs operator
 review. Existing ECS circuit-breaker rollback is recommended; this script does
 not promise an atomic two-service rollback.
 
 Jenkins has an overall 120-minute timeout, CodeBuild waits up to 40 minutes, and
-production approval expires after 30 minutes. Configure Jenkins permissions so
-only trusted users can change job parameters or approve production. Do not
+staging approval expires after 30 minutes. Configure Jenkins permissions so
+only trusted users can change job parameters or approve staging. Do not
 approve an older release after a newer release has been deployed by another job.
 
 ## Local verification
 
     bash -n ci/build-images.sh
-    python3 ci/test_image_gate.py
+    python3 -m unittest discover -s ci -p 'test_*.py'
     python3 -m compileall -q ci
     terraform fmt -check -recursive infra/terraform
     terraform -chdir=infra/terraform/environments/staging validate

@@ -76,13 +76,15 @@ has been reviewed. ALB/RDS deletion protection remains enabled.
 6. Set Jenkins CODEBUILD_PROJECT and REPORT_BUCKET from shared outputs. Set
    STAGING_* and PRODUCTION_* from each environment's `jenkins_parameters` output.
    Restrict Jenkins PassRole to the task and execution role ARNs in those outputs.
-   Keep the existing required production approver configuration.
+   Configure STAGING_APPROVERS with the Jenkins users/groups allowed to approve
+   staging deployment. The pipeline does not deploy production.
 
 ## Application deployment ownership
 
-Jenkins builds/scans once, deploys digest references to staging, checks `/`,
-`/healthz` and `/api/health/db`, then requires approval before deploying the same
-manifest to production. `ci/deploy.sh` wraps the existing Python deployment code;
+Jenkins builds/scans once and publishes images and reports, then requests manual
+staging approval. Approval deploys the same digests to staging and checks `/`,
+`/healthz` and `/api/health/db`. Approval identity, time and deployment outcome are
+archived in Jenkins. Production deployment remains outside this pipeline. `ci/deploy.sh` wraps the existing Python deployment code;
 `ci/smoke-test.sh <url>` can independently check an environment.
 
 Terraform creates initial task definitions and services. Services ignore changes
