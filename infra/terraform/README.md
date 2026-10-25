@@ -115,3 +115,26 @@ done
 ruff check .
 python3 -m unittest discover -s ci -p 'test_*.py'
 ```
+
+## ECS service autoscaling
+
+Frontend and backend scale independently on Fargate. Staging runs 1–2 tasks per
+service; production runs 2–6. `desired_count` is the initial/minimum count and
+`max_task_count` is the upper limit in each environment's `terraform.tfvars`.
+CPU target tracking uses 60% and memory uses 70%, with a 60-second scale-out
+cooldown and 300-second scale-in cooldown. Either policy can request scale-out;
+both must permit scale-in. These are service-average metrics, not per-request
+latency guarantees. The database does not scale through these policies.
+
+Terraform preserves runtime `desired_count` changes so later infrastructure
+applies do not undo autoscaling. Change the target's min/max inputs to adjust
+capacity bounds. AWS manages the target-tracking CloudWatch alarms.
+
+Before applying, the provisioning role needs Application Auto Scaling target and
+policy management/read permissions, including RegisterScalableTarget,
+DeregisterScalableTarget, PutScalingPolicy, DeleteScalingPolicy,
+DescribeScalableTargets, DescribeScalingPolicies, DescribeScalingActivities and
+ListTagsForResource, plus the scoped CloudWatch alarm permissions used by target
+tracking. On first use, AWS may need permission to create the ECS Application
+Auto Scaling service-linked role (`ecs.application-autoscaling.amazonaws.com`).
+No live IAM permissions or resources are changed by these source files.

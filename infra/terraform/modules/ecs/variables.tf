@@ -52,3 +52,12 @@ variable "container_insights" {
   type        = bool
   description = "Enable ECS Container Insights"
 }
+
+variable "max_task_count" {
+  type        = number
+  description = "Maximum Fargate tasks per service; desired_count is the minimum"
+  validation {
+    condition     = var.max_task_count >= var.desired_count && var.desired_count >= 1 && floor(var.desired_count) == var.desired_count && floor(var.max_task_count) == var.max_task_count
+    error_message = "Task limits must be positive integers, with max_task_count >= desired_count."
+  }
+}
