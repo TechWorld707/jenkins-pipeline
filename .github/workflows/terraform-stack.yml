@@ -84,6 +84,18 @@ jobs:
         with:
           terraform_version: '1.10.5'
           terraform_wrapper: false
+      - name: Check plan role configuration
+        env:
+          ROLE_ARN: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+        run: |
+          if [ -z "$ROLE_ARN" ]; then
+            echo '::error::Missing repository Actions secret AWS_ROLE_TO_ASSUME. Set it to the Terraform plan role ARN.'
+            exit 1
+          fi
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo '::error::GitHub OIDC is unavailable. The caller and plan job must grant id-token: write.'
+            exit 1
+          fi
       - name: Configure read and lock credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -164,6 +176,18 @@ jobs:
             *) exit 1 ;;
           esac
           echo "TF_ROOT=$root" >> "$GITHUB_ENV"
+      - name: Check approved environment role configuration
+        env:
+          ROLE_ARN: ${{ secrets.AWS_APPLY_ROLE_TO_ASSUME }}
+        run: |
+          if [ -z "$ROLE_ARN" ]; then
+            echo "::error::Missing environment secret AWS_APPLY_ROLE_TO_ASSUME in terraform-$STACK. Open Settings > Environments > terraform-$STACK > Environment secrets and add the apply role ARN for this stack."
+            exit 1
+          fi
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo '::error::GitHub OIDC is unavailable. The caller and apply job must grant id-token: write.'
+            exit 1
+          fi
       - name: Configure environment-scoped apply credentials after approval
         uses: aws-actions/configure-aws-credentials@v6
         with:
