@@ -165,3 +165,20 @@ artifact and each changed main-branch plan has its own protected apply approval.
 A disabled environment displays Setup required instead of running a plan; enable
 its repository variable after providing its private inputs. No-change plans skip
 apply, and pull requests never apply.
+
+## Credentials could not be loaded
+
+If `configure-aws-credentials` reports that no credential providers are available,
+check the role ARN input first. The plan job reads repository secret
+`AWS_ROLE_TO_ASSUME`; each apply job reads `AWS_APPLY_ROLE_TO_ASSUME` from its own
+protected environment. A production environment secret is unavailable to shared
+or staging jobs. The workflow now checks missing role settings before authentication.
+
+For a shared apply, open Settings > Environments > terraform-shared > Environment
+secrets and add `AWS_APPLY_ROLE_TO_ASSUME` with the shared apply-role ARN. The
+role must already exist and trust the exact `terraform-shared` OIDC subject from
+the shared trust template. Adding the ARN does not create the AWS role, update
+its trust, or grant permissions. Repeat for staging when enabling that stack.
+Do not copy the production role ARN unless that role has explicitly reviewed
+trust and permissions for the other environment. An STS AccessDenied after this
+setting is supplied indicates a separate trust/permission issue.
