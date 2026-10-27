@@ -90,7 +90,10 @@
       "Resource": "arn:aws:iam::671662643382:role/webtech-staging-rds-monitoring",
       "Condition": {
         "StringEquals": {
-          "iam:PassedToService": "monitoring.rds.amazonaws.com"
+          "iam:PassedToService": [
+            "rds.amazonaws.com",
+            "monitoring.rds.amazonaws.com"
+          ]
         }
       }
     },

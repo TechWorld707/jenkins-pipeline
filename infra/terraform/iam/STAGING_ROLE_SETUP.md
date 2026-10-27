@@ -56,3 +56,17 @@ formats. It does not guarantee that every Terraform operation is authorised by
 all account controls or prove strict isolation. No deployment was run to test it.
 For production, replace regional/account-wide write scopes with reviewed tag/ID
 conditions and resource-specific controls before reusing this approach.
+
+## RDS PassRole and EIP refresh corrections
+
+Update the existing customer managed policies (create a new default version):
+`TerraformStagingRolesAccess` uses both `rds.amazonaws.com` and
+`monitoring.rds.amazonaws.com` for the exact RDS monitoring role's PassRole
+condition. This condition is separate from the monitoring role's trust principal;
+keep its trust unchanged. `TerraformStagingNetworkAccess` includes
+`ec2:DescribeAddressesAttribute`, used by the provider when reading an allocated
+Elastic IP. The source corrections are not installed automatically.
+
+After a partially failed apply, run a fresh plan against the current remote
+state and review it before approving. Do not reuse the old saved binary plan,
+delete state, or destroy successful resources to retry these permissions.

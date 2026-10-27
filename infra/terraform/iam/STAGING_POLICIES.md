@@ -36,7 +36,8 @@ Source: [github-terraform-staging-network-policy.json](github-terraform-staging-
         "ec2:DescribeAddresses",
         "ec2:DescribeNatGateways",
         "ec2:DescribeManagedPrefixLists",
-        "ec2:GetManagedPrefixListEntries"
+        "ec2:GetManagedPrefixListEntries",
+        "ec2:DescribeAddressesAttribute"
       ],
       "Resource": "*",
       "Condition": {
@@ -259,7 +260,10 @@ Source: [github-terraform-staging-roles-policy.json](github-terraform-staging-ro
       "Resource": "arn:aws:iam::671662643382:role/webtech-staging-rds-monitoring",
       "Condition": {
         "StringEquals": {
-          "iam:PassedToService": "monitoring.rds.amazonaws.com"
+          "iam:PassedToService": [
+            "rds.amazonaws.com",
+            "monitoring.rds.amazonaws.com"
+          ]
         }
       }
     },
