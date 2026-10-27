@@ -1,0 +1,199 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageStagingCluster",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateCluster",
+        "ecs:DeleteCluster",
+        "ecs:DescribeClusters",
+        "ecs:UpdateCluster",
+        "ecs:UpdateClusterSettings",
+        "ecs:TagResource",
+        "ecs:UntagResource",
+        "ecs:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:ecs:eu-west-2:671662643382:cluster/webtech-staging"
+    },
+    {
+      "Sid": "ManageStagingServices",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateService",
+        "ecs:UpdateService",
+        "ecs:DeleteService",
+        "ecs:DescribeServices",
+        "ecs:TagResource",
+        "ecs:UntagResource",
+        "ecs:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:ecs:eu-west-2:671662643382:service/webtech-staging/webtech-staging-*"
+    },
+    {
+      "Sid": "RegisterTaskDefinitions",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:RegisterTaskDefinition"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ManageStagingTaskDefinitions",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:DescribeTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:TagResource",
+        "ecs:UntagResource",
+        "ecs:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:ecs:eu-west-2:671662643382:task-definition/webtech-staging-frontend:*",
+        "arn:aws:ecs:eu-west-2:671662643382:task-definition/webtech-staging-backend:*"
+      ]
+    },
+    {
+      "Sid": "ManageServiceDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "servicediscovery:CreateHttpNamespace",
+        "servicediscovery:GetNamespace",
+        "servicediscovery:DeleteNamespace",
+        "servicediscovery:GetOperation",
+        "servicediscovery:ListTagsForResource",
+        "servicediscovery:TagResource",
+        "servicediscovery:UntagResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ManageStagingRds",
+      "Effect": "Allow",
+      "Action": [
+        "rds:CreateDBInstance",
+        "rds:ModifyDBInstance",
+        "rds:DeleteDBInstance",
+        "rds:CreateDBSubnetGroup",
+        "rds:ModifyDBSubnetGroup",
+        "rds:DeleteDBSubnetGroup",
+        "rds:CreateDBParameterGroup",
+        "rds:ModifyDBParameterGroup",
+        "rds:DeleteDBParameterGroup",
+        "rds:AddTagsToResource",
+        "rds:RemoveTagsFromResource",
+        "rds:ListTagsForResource"
+      ],
+      "Resource": [
+        "arn:aws:rds:eu-west-2:671662643382:db:webtech-staging-postgres",
+        "arn:aws:rds:eu-west-2:671662643382:subgrp:webtech-staging-db-subnets",
+        "arn:aws:rds:eu-west-2:671662643382:pg:webtech-staging-*",
+        "arn:aws:rds:eu-west-2:671662643382:snapshot:webtech-staging-postgres-final"
+      ]
+    },
+    {
+      "Sid": "ReadRds",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSubnetGroups",
+        "rds:DescribeDBParameterGroups",
+        "rds:DescribeDBParameters",
+        "rds:DescribeDBEngineVersions"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ReadRdsSecretMetadata",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": "arn:aws:secretsmanager:eu-west-2:671662643382:secret:rds!db-*"
+    },
+    {
+      "Sid": "RdsCreatesManagedSecret",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:CreateSecret",
+        "secretsmanager:TagResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2",
+          "aws:CalledViaLast": "rds.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "DescribeRdsManagedEncryptionKey",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey"
+      ],
+      "Resource": "arn:aws:kms:eu-west-2:671662643382:key/*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "kms:ResourceAliases": [
+            "alias/aws/rds",
+            "alias/aws/secretsmanager"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ManageEcsScaling",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:RegisterScalableTarget",
+        "application-autoscaling:DeregisterScalableTarget",
+        "application-autoscaling:PutScalingPolicy",
+        "application-autoscaling:DeleteScalingPolicy",
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:DescribeScalingPolicies",
+        "application-autoscaling:DescribeScalingActivities"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2",
+          "application-autoscaling:service-namespace": "ecs"
+        }
+      }
+    },
+    {
+      "Sid": "ReadScalingTags",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:application-autoscaling:eu-west-2:671662643382:scalable-target/*"
+    },
+    {
+      "Sid": "ManageScalingAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms"
+      ],
+      "Resource": "arn:aws:cloudwatch:eu-west-2:671662643382:alarm:TargetTracking-service/webtech-staging/*"
+    }
+  ]
+}

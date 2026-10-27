@@ -20,3 +20,8 @@ and exclude management of the GitHub roles themselves from deployment access.
 An earlier attempt to install broad policy changes was rejected by automatic
 approval review. That rejection did not install those permissions; these source
 files must not be treated as evidence of live IAM access.
+
+Staging manual setup: [STAGING_ROLE_SETUP.md](STAGING_ROLE_SETUP.md). The five
+`github-terraform-staging-*-policy.json` files are proposed managed policies;
+review the guide's broader regional/account scopes before attaching. The KMS
+permissions require the staging provider's `Environment=staging` default tag.
