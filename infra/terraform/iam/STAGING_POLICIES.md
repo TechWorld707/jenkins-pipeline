@@ -338,7 +338,6 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
       "Sid": "ManageStagingTaskDefinitions",
       "Effect": "Allow",
       "Action": [
-        "ecs:DescribeTaskDefinition",
         "ecs:DeregisterTaskDefinition",
         "ecs:TagResource",
         "ecs:UntagResource",
@@ -485,6 +484,17 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
         "cloudwatch:DescribeAlarms"
       ],
       "Resource": "arn:aws:cloudwatch:eu-west-2:671662643382:alarm:TargetTracking-service/webtech-staging/*"
+    },
+    {
+      "Sid": "ReadTaskDefinitions",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTaskDefinition",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
     }
   ]
 }
