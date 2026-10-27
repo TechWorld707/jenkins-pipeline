@@ -70,3 +70,11 @@ Elastic IP. The source corrections are not installed automatically.
 After a partially failed apply, run a fresh plan against the current remote
 state and review it before approving. Do not reuse the old saved binary plan,
 delete state, or destroy successful resources to retry these permissions.
+
+## ECS task definition read correction
+
+`ecs:DescribeTaskDefinition` does not support resource-level permissions. The
+compute policy grants this read API with Resource `*`, limited to eu-west-2.
+Deregistration and tag mutations remain restricted to staging task definitions.
+An apparently missing revision after registration can be a masked read-permission
+denial. Check its existence and the IAM decision before recreating or deleting it.
