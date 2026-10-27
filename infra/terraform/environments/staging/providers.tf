@@ -1,6 +1,6 @@
 provider "aws" {
   region = "eu-west-2"
-  default_tags { tags = { Project = "jenkins-pipeline", ManagedBy = "Terraform" } }
+  default_tags { tags = { Project = "jenkins-pipeline", ManagedBy = "Terraform", Environment = "staging" } }
 }
 provider "aws" {
   alias  = "us_east_1"

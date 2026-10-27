@@ -1,0 +1,111 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageStagingRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:UpdateRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:ListRoleTags",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListInstanceProfilesForRole",
+        "iam:PutRolePolicy",
+        "iam:GetRolePolicy",
+        "iam:DeleteRolePolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::671662643382:role/webtech-staging-ecs-execution",
+        "arn:aws:iam::671662643382:role/webtech-staging-ecs-task",
+        "arn:aws:iam::671662643382:role/webtech-staging-rds-monitoring",
+        "arn:aws:iam::671662643382:role/webtech-staging-vpc-flow-logs"
+      ]
+    },
+    {
+      "Sid": "AttachExecutionPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::671662643382:role/webtech-staging-ecs-execution",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+        }
+      }
+    },
+    {
+      "Sid": "AttachMonitoringPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy"
+      ],
+      "Resource": "arn:aws:iam::671662643382:role/webtech-staging-rds-monitoring",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
+        }
+      }
+    },
+    {
+      "Sid": "PassEcsexecution",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::671662643382:role/webtech-staging-ecs-execution",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassEcstask",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::671662643382:role/webtech-staging-ecs-task",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "ecs-tasks.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassRdsmonitoring",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::671662643382:role/webtech-staging-rds-monitoring",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "monitoring.rds.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "PassVpcflowlogs",
+      "Effect": "Allow",
+      "Action": [
+        "iam:PassRole"
+      ],
+      "Resource": "arn:aws:iam::671662643382:role/webtech-staging-vpc-flow-logs",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "vpc-flow-logs.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
