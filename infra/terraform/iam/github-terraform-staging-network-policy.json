@@ -19,7 +19,8 @@
         "ec2:DescribeAddresses",
         "ec2:DescribeNatGateways",
         "ec2:DescribeManagedPrefixLists",
-        "ec2:GetManagedPrefixListEntries"
+        "ec2:GetManagedPrefixListEntries",
+        "ec2:DescribeAddressesAttribute"
       ],
       "Resource": "*",
       "Condition": {
