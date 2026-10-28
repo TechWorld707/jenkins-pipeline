@@ -34,7 +34,6 @@ module "ecs" {
   name               = local.name
   subnet_ids         = module.network.app_subnet_ids
   security_group_ids = { for k, v in aws_security_group.app : k => v.id }
-  images             = var.images
   db_host            = module.database.host
   db_name            = module.database.name
   db_secret_arn      = module.database.secret_arn

@@ -79,59 +79,37 @@ this setting. Once enabled, missing secrets remain a failure and block apply.
 
 ## Private inputs for staging and production plans
 
-Set these as **repository Actions secrets**, since plans run before the protected
-apply job. Environment-only secrets cannot supply the unapproved plan job.
-Trusted same-repository PRs may use the plan role and these inputs; fork PR plans
-are excluded. Limit who can push branches, and protect workflow changes with review.
+Set repository Actions secrets `TF_STAGING_ORIGIN_TOKEN` and
+`TF_PRODUCTION_ORIGIN_TOKEN` to separate stable random 32–128 character values.
+Plans run before protected apply jobs, so environment-only secrets cannot supply
+these inputs. Trusted same-repository PRs may use plan inputs; fork plans are excluded.
+Protect branch/workflow writes and reviewers accordingly.
 
-| Secret | Value |
-| --- | --- |
-| `TF_STAGING_ORIGIN_TOKEN` | Stable random 32–128 character staging origin token |
-| `TF_PRODUCTION_ORIGIN_TOKEN` | Different stable production origin token |
-| `TF_STAGING_IMAGES` | JSON map with `frontend` and `backend` ECR digest references |
-| `TF_PRODUCTION_IMAGES` | JSON map with `frontend` and `backend` ECR digest references |
-
-Example image map shape (use real digests from Jenkins `release.json`):
-
-```json
-{"frontend":"671662643382.dkr.ecr.eu-west-2.amazonaws.com/webtech-shared-frontend@sha256:REPLACE_WITH_64_HEX_DIGEST","backend":"671662643382.dkr.ecr.eu-west-2.amazonaws.com/webtech-shared-backend@sha256:REPLACE_WITH_64_HEX_DIGEST"}
-```
-
-Copy only the `images` object, not the whole manifest. Keep stable bootstrap
-image inputs for future plans; ECS service `task_definition` ignores Terraform
-changes so later applies do not roll back Jenkins application releases.
-Do not commit tokens or local `.auto.tfvars.json` files. Saved binary plans can
-contain secrets even when text reports redact them. Artifacts expire after one day;
-restrict repository access accordingly.
+Image-map secrets are no longer used. Terraform creates zero-task ECS scaffolding
+with an intentionally unpullable placeholder image and suspended autoscaling.
+Jenkins chooses and deploys application image digests after approval. Remove obsolete
+TF_STAGING_IMAGES/TF_PRODUCTION_IMAGES secrets and local `images` tfvars entries.
+Saved plans still contain origin tokens; restrict artifact access (one-day retention).
 
 ## First deployment after teardown
 
-The previous images were deleted. ECS creation needs existing application images:
+1. Merge the code and configure GitHub roles, origin-token secrets and reviewers.
+2. Run the workflow on main for shared; review and approve terraform-shared.
+3. Enable staging/production via TF_STAGING_ENABLED / TF_PRODUCTION_ENABLED=true.
+   Run, review and approve their infrastructure plans separately. Services start
+   with zero tasks and autoscaling suspended; these applies do not launch the app.
+4. Copy infrastructure outputs into Jenkins parameters for both environments.
+5. Run Jenkins with BUILD_ONLY unchecked. Jenkins builds/scans/publishes images,
+   then waits for staging application approval before starting staging tasks.
+6. Jenkins verifies staging before requesting production approval; it deploys the
+   same image digests there, then enables that environment's autoscaling after checks.
 
-1. Commit/merge these changes, configure roles and secrets above.
-2. In **Actions > WebTech CI and security scans > Run workflow**, select **main**,
-   stack **shared**. Read its plan artifact, then approve **terraform-shared**.
-3. In Jenkins **webtech-pipeline > main > Build with Parameters**, check
-   **BUILD_ONLY**. This builds/scans/publishes images and skips all deployment
-   configuration checks and approval/deployment stages. Set CodeBuild/report
-   names from the new shared outputs. Download `release.json` after success.
-4. Set both image-map secrets using that scanned release. Set the two origin tokens.
-5. Set `TF_STAGING_ENABLED=true`. Run the GitHub workflow for **staging**, review its plan and approve
-   **terraform-staging**. Copy its new `jenkins_parameters` output to Jenkins.
-6. Set `TF_PRODUCTION_ENABLED=true`. Run it for **production**, review its plan and approve **terraform-production**.
-   Copy the new production outputs to Jenkins.
-7. For later application changes, run Jenkins with **BUILD_ONLY unchecked** and
-   both URLs/approver lists configured. Jenkins deploys to staging after approval,
-   verifies it, then asks for production approval and promotes the same digests.
-   Use a new application commit for a new image build: ECR tags are immutable.
-
-Merges to main and same-repository PRs plan all three stacks. PRs never apply.
-Manual runs can select one stack or all. The three roots are independently
-planned/applied; selecting all does not sequence provisioning dependencies. Use
-shared → initial image build → staging → production for a clean installation.
-A missing private input fails that environment's plan; other stack jobs
-continue. An infrastructure merge may also trigger Jenkins via webhook, so during
-initial provisioning use a manual build-only run until the services exist.
+Full ownership, migration and Jenkins permissions:
+[ci/DEPLOYMENT_FLOW.md](../../ci/DEPLOYMENT_FLOW.md). BUILD_ONLY is an optional
+publication-only mode, not a provisioning prerequisite. Enabled stacks plan in
+parallel; applying one does not automatically wait for the other stack. A main
+push webhook may also trigger Jenkins, which needs both environments provisioned
+and configured. GitHub completion does not automatically start local Jenkins.
 
 ## Review and approve a routine infrastructure change
 
@@ -163,7 +141,7 @@ The workflow uses three explicitly named branches instead of a collapsed matrix:
 Expand each reusable workflow branch to view its jobs. Each plan has a separate
 artifact and each changed main-branch plan has its own protected apply approval.
 A disabled environment displays Setup required instead of running a plan; enable
-its repository variable after providing its private inputs. No-change plans skip
+its repository variable after providing its origin token. No-change plans skip
 apply, and pull requests never apply.
 
 ## Credentials could not be loaded

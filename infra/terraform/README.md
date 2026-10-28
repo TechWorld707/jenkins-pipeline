@@ -37,19 +37,19 @@ backend bucket, its encryption key or access-log bucket.
 
 ## Build and deployment order
 
-Use GitHub Actions for reviewed infrastructure applies:
+1. Review and approve shared infrastructure in GitHub Actions.
+2. Review and approve staging and production infrastructure with their own origin
+   tokens. Services are created with zero tasks; scaling is suspended. No images
+   or image-map secrets are required for infrastructure provisioning.
+3. Copy each environment's outputs into Jenkins parameters.
+4. Jenkins builds, scans and publishes images. After manual staging approval it
+   starts staging, verifies it, then requests a separate production approval.
+5. Jenkins promotes the same digests to production. Each environment's autoscaling
+   activates only after its smoke tests pass.
 
-1. Run the security workflow on main for **shared**; review its plan and approve
-   the `terraform-shared` deployment.
-2. Run Jenkins with `BUILD_ONLY=true` to build, scan and publish initial images.
-3. Supply stable private origin tokens and image-map secrets to GitHub Actions.
-4. Run/review/approve **staging**, then **production** infrastructure in GitHub.
-5. Copy the new infrastructure outputs to Jenkins. Normal Jenkins releases use
-   `BUILD_ONLY=false` and separate staging/production application approvals.
-
-The [setup guide](GITHUB_AWS_ROLE_SETUP.md) lists the exact settings and sequence.
-For local inspection, use each root's state/output commands; deployment approvals
-belong in GitHub Actions. Plans and state can contain secrets; keep them private.
+See [the release flow](../../ci/DEPLOYMENT_FLOW.md) for first deployment, existing
+service migration and Jenkins IAM requirements. These code changes do not stop
+existing workloads or provision resources by themselves.
 
 ## Jenkins settings
 
@@ -65,9 +65,8 @@ Jenkins publishes scans and immutable images, then requests staging approval.
 Approval records the user/time and deploys the same digests to staging. Once
 staging verification succeeds, a separate production approval promotes that exact
 manifest, without another build. Production approval and result records are archived
-with the Jenkins build. Provisioning a fresh environment creates its
-initial ECS services through Terraform; subsequent application releases use the
-Jenkins approval flow. Do not rebuild an already-published SHA: ECR tags are
+with the Jenkins build. Provisioning a fresh environment creates idle ECS services through Terraform;
+Jenkins approval is required for the first application launch and later releases. Do not rebuild an already-published SHA: ECR tags are
 immutable. Reuse its release manifest when recovering a deployment-only failure.
 
 Terraform ignores service task_definition changes so infrastructure applies do
@@ -119,14 +118,16 @@ python3 -m unittest discover -s ci -p 'test_*.py'
 ## ECS service autoscaling
 
 Frontend and backend scale independently on Fargate. Staging runs 1–2 tasks per
-service; production runs 2–6. `desired_count` is the initial/minimum count and
+service; production runs 2–6. `desired_count` is the post-approval runtime minimum and
 `max_task_count` is the upper limit in each environment's `terraform.tfvars`.
 CPU target tracking uses 60% and memory uses 70%, with a 60-second scale-out
 cooldown and 300-second scale-in cooldown. Either policy can request scale-out;
 both must permit scale-in. These are service-average metrics, not per-request
 latency guarantees. The database does not scale through these policies.
 
-Terraform preserves runtime `desired_count` changes so later infrastructure
+Fresh services and scaling targets have zero desired/minimum capacity, with
+scaling suspended until Jenkins verifies an approved release. Terraform preserves
+runtime service counts and activated target minima/suspension so later infrastructure
 applies do not undo autoscaling. Change the target's min/max inputs to adjust
 capacity bounds. AWS manages the target-tracking CloudWatch alarms.
 

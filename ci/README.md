@@ -213,16 +213,15 @@ Updates to two services are not atomic, and smoke-test failure does not itself
 roll back both services. Keep competing deployers out of these environments while
 approval is pending. Live production promotion must be verified after merge.
 
-## Infrastructure and application approval ownership
 
-GitHub Actions plans and applies shared, staging and production infrastructure
-through three protected environments. See
-[the infrastructure setup guide](../infra/terraform/GITHUB_AWS_ROLE_SETUP.md).
-Jenkins runs CodeBuild to build, scan and publish, then approves/deploys application
-releases to the existing ECS services. Jenkins does not run Terraform.
+## Infrastructure and approved application deployment
 
-Use `BUILD_ONLY=true` for the first image publication after shared infrastructure
-exists but before ECS is provisioned. It skips staging/production configuration,
-approvals and deployments. Normal releases use `BUILD_ONLY=false`, staging
-verification and production promotion of the same immutable image digests.
-Old CloudFront URL defaults were removed after teardown; fill in new outputs.
+Terraform provisions empty ECS Fargate services and suspended autoscaling. Jenkins
+builds/scans/publishes image digests, waits for staging approval, deploys and tests
+staging, then requests production approval to promote the same images. Scaling
+activates after each environment passes verification. BUILD_ONLY publishes only.
+
+See [the deployment flow](../ci/DEPLOYMENT_FLOW.md) for the exact sequence,
+existing-service migration and the additional Jenkins autoscaling permissions.
+Both environment configurations are required for a full run. No initial image
+map is needed for Terraform. Use fresh infrastructure outputs for the URLs.

@@ -107,12 +107,15 @@ Do not use `down -v` unless you intend to delete Jenkins data. Back up the named
 volume before upgrades. This learning setup executes trusted pipeline code on
 the controller; a hosted team setup should use separate build agents.
 
-## GitHub infrastructure gates
 
-Provision shared, staging and production through their GitHub Actions plan/apply
-approvals; Jenkins owns application releases. For a fresh installation, first
-approve shared infrastructure, then run Jenkins with `BUILD_ONLY` checked to
-publish the bootstrap images. Supply those digests to the GitHub environment
-plans before approving staging and production infrastructure. Configure Jenkins
-with the newly created URLs and run normal releases with `BUILD_ONLY` unchecked.
-Full sequence: [GitHub infrastructure approval guide](../infra/terraform/GITHUB_AWS_ROLE_SETUP.md).
+## Infrastructure and approved application deployment
+
+Terraform provisions empty ECS Fargate services and suspended autoscaling. Jenkins
+builds/scans/publishes image digests, waits for staging approval, deploys and tests
+staging, then requests production approval to promote the same images. Scaling
+activates after each environment passes verification. BUILD_ONLY publishes only.
+
+See [the deployment flow](../ci/DEPLOYMENT_FLOW.md) for the exact sequence,
+existing-service migration and the additional Jenkins autoscaling permissions.
+Both environment configurations are required for a full run. No initial image
+map is needed for Terraform. Use fresh infrastructure outputs for the URLs.

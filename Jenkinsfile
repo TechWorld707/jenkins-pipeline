@@ -16,7 +16,7 @@ pipeline {
     string(name: 'STAGING_CLUSTER', defaultValue: 'webtech-staging')
     string(name: 'STAGING_FRONTEND_SERVICE', defaultValue: 'webtech-staging-frontend')
     string(name: 'STAGING_BACKEND_SERVICE', defaultValue: 'webtech-staging-backend')
-    string(name: 'STAGING_URL', defaultValue: 'https://d1d5yx6wu274gs.cloudfront.net', description: 'Staging CloudFront HTTPS URL')
+    string(name: 'STAGING_URL', defaultValue: '', description: 'Staging CloudFront HTTPS URL')
     string(name: 'STAGING_APPROVERS', defaultValue: '', description: 'Comma-separated Jenkins users or groups allowed to approve staging')
     string(name: 'PRODUCTION_CLUSTER', defaultValue: 'webtech-production')
     string(name: 'PRODUCTION_FRONTEND_SERVICE', defaultValue: 'webtech-production-frontend')

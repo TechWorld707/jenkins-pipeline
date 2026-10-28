@@ -10,7 +10,7 @@ variable "cidr_block" {
 
 variable "desired_count" {
   type        = number
-  description = "Tasks per service"
+  description = "Minimum tasks per service after the first approved Jenkins release"
 }
 
 variable "multi_az" {
@@ -32,15 +32,6 @@ variable "cloudfront_origin_token" {
     error_message = "Supply a random 32-128 character origin token."
   }
 }
-variable "images" {
-  type        = map(string)
-  description = "Bootstrap frontend and backend images, supplied through TF_VAR_images"
-  validation {
-    condition     = alltrue([for c in ["frontend", "backend"] : can(regex("^[0-9]{12}[.]dkr[.]ecr[.]eu-west-2[.]amazonaws[.]com/[^@]+@sha256:[0-9a-f]{64}$", var.images[c]))])
-    error_message = "Supply frontend and backend ECR image digests."
-  }
-}
-
 variable "max_task_count" {
   type        = number
   description = "Maximum Fargate tasks per service; desired_count is the minimum"

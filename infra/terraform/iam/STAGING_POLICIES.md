@@ -453,10 +453,7 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
         "application-autoscaling:RegisterScalableTarget",
         "application-autoscaling:DeregisterScalableTarget",
         "application-autoscaling:PutScalingPolicy",
-        "application-autoscaling:DeleteScalingPolicy",
-        "application-autoscaling:DescribeScalableTargets",
-        "application-autoscaling:DescribeScalingPolicies",
-        "application-autoscaling:DescribeScalingActivities"
+        "application-autoscaling:DeleteScalingPolicy"
       ],
       "Resource": "*",
       "Condition": {
@@ -501,6 +498,21 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
       "Sid": "DeregisterTaskDefinitionRevisions",
       "Effect": "Allow",
       "Action": "ecs:DeregisterTaskDefinition",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ReadEcsScaling",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:DescribeScalingPolicies",
+        "application-autoscaling:DescribeScalingActivities"
+      ],
       "Resource": "*",
       "Condition": {
         "StringEquals": {

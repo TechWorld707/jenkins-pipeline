@@ -13,11 +13,6 @@ variable "security_group_ids" {
   description = "Task security groups"
 }
 
-variable "images" {
-  type        = map(string)
-  description = "Initial frontend and backend immutable image references"
-}
-
 variable "db_host" {
   type        = string
   description = "Database host"
@@ -35,7 +30,7 @@ variable "db_secret_arn" {
 
 variable "desired_count" {
   type        = number
-  description = "Tasks per service"
+  description = "Minimum tasks per service after the first approved Jenkins release"
 }
 
 variable "retention_days" {
