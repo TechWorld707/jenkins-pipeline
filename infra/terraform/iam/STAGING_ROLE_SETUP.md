@@ -88,3 +88,12 @@ This permits deregistration of any task-definition family in that region, not
 only staging families. Keep the GitHub approval gate protected. The provider's
 family-only state ID is normal; its ARN attribute identifies the exact revision.
 Do not edit state IDs or deregister revisions manually to fix this IAM denial.
+
+## Autoscaling target tags
+
+The provider sends default tags when registering scalable targets. The compute
+policy includes TagResource and UntagResource alongside ListTagsForResource for
+London/account scalable-target ARNs. This tag authority is regional, not limited
+by target family; target ARNs have generated IDs. Registration still uses the
+ECS namespace restriction. These permissions support initial tagging and later
+Terraform tag reconciliation, without granting permission to start tasks.

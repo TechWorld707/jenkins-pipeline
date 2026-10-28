@@ -467,10 +467,12 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
       }
     },
     {
-      "Sid": "ReadScalingTags",
+      "Sid": "ManageScalingTags",
       "Effect": "Allow",
       "Action": [
-        "application-autoscaling:ListTagsForResource"
+        "application-autoscaling:ListTagsForResource",
+        "application-autoscaling:TagResource",
+        "application-autoscaling:UntagResource"
       ],
       "Resource": "arn:aws:application-autoscaling:eu-west-2:671662643382:scalable-target/*"
     },
