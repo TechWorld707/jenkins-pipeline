@@ -1,0 +1,35 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadEcsScalingTargets",
+      "Effect": "Allow",
+      "Action": "application-autoscaling:DescribeScalableTargets",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ReadReleaseCapacityTags",
+      "Effect": "Allow",
+      "Action": "application-autoscaling:ListTagsForResource",
+      "Resource": "arn:aws:application-autoscaling:eu-west-2:671662643382:scalable-target/*"
+    },
+    {
+      "Sid": "ActivateApprovedEcsScaling",
+      "Effect": "Allow",
+      "Action": "application-autoscaling:RegisterScalableTarget",
+      "Resource": "arn:aws:application-autoscaling:eu-west-2:671662643382:scalable-target/*",
+      "Condition": {
+        "StringEquals": {
+          "application-autoscaling:service-namespace": "ecs",
+          "application-autoscaling:scalable-dimension": "ecs:service:DesiredCount",
+          "aws:ResourceTag/Project": "jenkins-pipeline"
+        }
+      }
+    }
+  ]
+}

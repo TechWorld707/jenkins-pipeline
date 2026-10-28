@@ -2,7 +2,7 @@ resource "aws_ecs_service" "backend" {
   name                               = "${var.name}-backend"
   cluster                            = aws_ecs_cluster.main.id
   task_definition                    = aws_ecs_task_definition.app["backend"].arn
-  desired_count                      = var.desired_count
+  desired_count                      = 0
   launch_type                        = "FARGATE"
   platform_version                   = "LATEST"
   deployment_minimum_healthy_percent = 100
@@ -37,7 +37,7 @@ resource "aws_ecs_service" "frontend" {
   name                               = "${var.name}-frontend"
   cluster                            = aws_ecs_cluster.main.id
   task_definition                    = aws_ecs_task_definition.app["frontend"].arn
-  desired_count                      = var.desired_count
+  desired_count                      = 0
   launch_type                        = "FARGATE"
   platform_version                   = "LATEST"
   deployment_minimum_healthy_percent = 100

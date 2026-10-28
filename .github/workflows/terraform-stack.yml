@@ -14,7 +14,7 @@ on:
 permissions:
   contents: read
 
-# Origin tokens and bootstrap image manifests must be available to the plan job.
+# Origin tokens must be available to the plan job; image releases belong to Jenkins.
 # Apply uses only the saved plan, so it cannot silently change these inputs.
 env:
   TF_IN_AUTOMATION: 'true'
@@ -32,9 +32,9 @@ jobs:
           {
             echo "## $STACK infrastructure is not enabled"
             echo "No Terraform commands ran for this stack."
-            echo "Configure TF_${STACK^^}_ORIGIN_TOKEN and TF_${STACK^^}_IMAGES repository secrets."
+            echo "Configure TF_${STACK^^}_ORIGIN_TOKEN repository secret."
             echo "Then set repository variable TF_${STACK^^}_ENABLED=true to enable its plan and approval gate."
-            echo "For a fresh installation: shared infrastructure, Jenkins BUILD_ONLY image publication, then environment infrastructure."
+            echo "For a fresh installation: shared and environment infrastructure, then an approved Jenkins image release."
           } >> "$GITHUB_STEP_SUMMARY"
 
   plan:
@@ -54,8 +54,6 @@ jobs:
         env:
           STAGING_ORIGIN_TOKEN: ${{ secrets.TF_STAGING_ORIGIN_TOKEN }}
           PRODUCTION_ORIGIN_TOKEN: ${{ secrets.TF_PRODUCTION_ORIGIN_TOKEN }}
-          STAGING_IMAGES: ${{ secrets.TF_STAGING_IMAGES }}
-          PRODUCTION_IMAGES: ${{ secrets.TF_PRODUCTION_IMAGES }}
         run: |
           case "$STACK" in
             shared) root=infra/terraform/shared ;;
@@ -63,18 +61,14 @@ jobs:
               root="infra/terraform/environments/$STACK"
               if [ "$STACK" = staging ]; then
                 token="$STAGING_ORIGIN_TOKEN"
-                images="$STAGING_IMAGES"
               else
                 token="$PRODUCTION_ORIGIN_TOKEN"
-                images="$PRODUCTION_IMAGES"
               fi
-              if [ -z "$token" ] || [ -z "$images" ]; then
-                echo "::error::Configure TF_${STACK^^}_ORIGIN_TOKEN and TF_${STACK^^}_IMAGES repository secrets before planning this environment."
+              if [ -z "$token" ]; then
+                echo "::error::Configure TF_${STACK^^}_ORIGIN_TOKEN repository secret before planning this environment."
                 exit 1
               fi
               echo "TF_VAR_cloudfront_origin_token=$token" >> "$GITHUB_ENV"
-              # Compact JSON prevents multiline values from corrupting GITHUB_ENV.
-              echo "TF_VAR_images=$(jq -ce 'if type == "object" and (.frontend | type == "string") and (.backend | type == "string") then . else error("Expected frontend/backend image map") end' <<< "$images")" >> "$GITHUB_ENV"
               ;;
             *) echo '::error::Unknown Terraform stack'; exit 1 ;;
           esac

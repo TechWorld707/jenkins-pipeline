@@ -25,3 +25,7 @@ Staging manual setup: [STAGING_ROLE_SETUP.md](STAGING_ROLE_SETUP.md). The five
 `github-terraform-staging-*-policy.json` files are proposed managed policies;
 review the guide's broader regional/account scopes before attaching. The KMS
 permissions require the staging provider's `Environment=staging` default tag.
+
+Live preparation for the approved Jenkins release flow is recorded in
+[LIVE_IAM_READINESS.md](LIVE_IAM_READINESS.md), including production role/policy
+sources, preserved legacy access and the remaining provisioning sequence.

@@ -17,7 +17,7 @@ resource "aws_ecs_task_definition" "app" {
   task_role_arn            = aws_iam_role.task.arn
   container_definitions = jsonencode([{
     name         = each.key
-    image        = var.images[each.key]
+    image        = "example.invalid/awaiting-jenkins-approval:unreleased"
     essential    = true
     portMappings = [{ containerPort = each.value, hostPort = each.value, protocol = "tcp", name = each.key, appProtocol = "http" }]
     environment = each.key == "backend" ? [

@@ -428,6 +428,15 @@ jobs:
             terraform -chdir="infra/terraform/$root" validate
           done
 
+      - name: Test idle ECS provisioning with mocked AWS
+        run: |
+          test_root="$RUNNER_TEMP/ecs-approval-tests"
+          mkdir -p "$test_root"
+          cp -R infra/terraform/modules/ecs/. "$test_root/"
+          cp infra/terraform/environments/staging/.terraform.lock.hcl "$test_root/"
+          terraform -chdir="$test_root" init -backend=false -input=false -lockfile=readonly
+          terraform -chdir="$test_root" test -no-color
+
       - name: Initialise TFLint
         if: ${{ hashFiles('infra/terraform/*.tf', 'infra/terraform/**/*.tf') != '' }}
         run: |

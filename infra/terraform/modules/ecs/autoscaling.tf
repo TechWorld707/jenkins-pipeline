@@ -26,11 +26,23 @@ locals {
 resource "aws_appautoscaling_target" "service" {
   for_each = local.scalable_services
 
-  min_capacity       = var.desired_count
+  # Zero and suspended until Jenkins verifies the first approved release.
+  min_capacity       = 0
   max_capacity       = var.max_task_count
   resource_id        = "service/${aws_ecs_cluster.main.name}/${each.value}"
   scalable_dimension = "ecs:service:DesiredCount"
   service_namespace  = "ecs"
+
+  tags = { ReleaseMinCapacity = tostring(var.desired_count) }
+
+  suspended_state {
+    dynamic_scaling_in_suspended  = true
+    dynamic_scaling_out_suspended = true
+    scheduled_scaling_suspended   = true
+  }
+
+  # Jenkins activates these after smoke tests; later applies preserve activation.
+  lifecycle { ignore_changes = [min_capacity, suspended_state] }
 }
 
 resource "aws_appautoscaling_policy" "utilization" {
