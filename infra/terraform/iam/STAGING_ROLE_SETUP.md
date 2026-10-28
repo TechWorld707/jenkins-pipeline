@@ -39,8 +39,8 @@ These are learning deployment policies, not strict isolation between environment
 Regional EC2 networking mutations apply throughout eu-west-2, including resources
 outside staging. CloudFront distribution and response-header operations cover the
 account because generated IDs are not known until creation. Cloud Map operations
-are regional. ECS task registration is regional; subsequent service, cluster and
-revision management uses staging names. Some listing, log-delivery and scaling
+are regional. ECS task registration is regional; subsequent service and cluster management uses staging names. Task-definition
+reads and deregistration require regional wildcard resource access. Some listing, log-delivery and scaling
 operations also need wildcard resource scopes. The backend policy grants access
 only to staging state; it does not isolate the wider service API operations.
 
@@ -75,6 +75,16 @@ delete state, or destroy successful resources to retry these permissions.
 
 `ecs:DescribeTaskDefinition` does not support resource-level permissions. The
 compute policy grants this read API with Resource `*`, limited to eu-west-2.
-Deregistration and tag mutations remain restricted to staging task definitions.
+Tag mutations remain restricted to staging task definitions. Deregistration is
+regional as described below.
 An apparently missing revision after registration can be a masked read-permission
 denial. Check its existence and the IAM decision before recreating or deleting it.
+
+## ECS task definition deregistration correction
+
+AWS does not support resource-level permissions for `ecs:DeregisterTaskDefinition`.
+The compute policy uses Resource `*`, restricted to eu-west-2, for this operation.
+This permits deregistration of any task-definition family in that region, not
+only staging families. Keep the GitHub approval gate protected. The provider's
+family-only state ID is normal; its ARN attribute identifies the exact revision.
+Do not edit state IDs or deregister revisions manually to fix this IAM denial.

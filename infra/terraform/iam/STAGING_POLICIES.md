@@ -338,7 +338,6 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
       "Sid": "ManageStagingTaskDefinitions",
       "Effect": "Allow",
       "Action": [
-        "ecs:DeregisterTaskDefinition",
         "ecs:TagResource",
         "ecs:UntagResource",
         "ecs:ListTagsForResource"
@@ -489,6 +488,17 @@ Source: [github-terraform-staging-compute-policy.json](github-terraform-staging-
       "Sid": "ReadTaskDefinitions",
       "Effect": "Allow",
       "Action": "ecs:DescribeTaskDefinition",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "DeregisterTaskDefinitionRevisions",
+      "Effect": "Allow",
+      "Action": "ecs:DeregisterTaskDefinition",
       "Resource": "*",
       "Condition": {
         "StringEquals": {
