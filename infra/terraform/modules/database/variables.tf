@@ -28,3 +28,8 @@ variable "retention_days" {
   type        = number
   description = "Database log retention"
 }
+variable "production_log_privacy" {
+  type        = bool
+  default     = false
+  description = "Suppress SQL text/parameters and verbose error details in production PostgreSQL logs."
+}

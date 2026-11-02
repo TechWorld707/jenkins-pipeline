@@ -54,6 +54,8 @@ jobs:
         env:
           STAGING_ORIGIN_TOKEN: ${{ secrets.TF_STAGING_ORIGIN_TOKEN }}
           PRODUCTION_ORIGIN_TOKEN: ${{ secrets.TF_PRODUCTION_ORIGIN_TOKEN }}
+          PRODUCTION_TELEMETRY_JSON: ${{ vars.PRODUCTION_TELEMETRY_JSON }}
+          PRODUCTION_MONITORING_RUNTIME_EXPECTED: ${{ vars.PRODUCTION_MONITORING_RUNTIME_EXPECTED }}
         run: |
           case "$STACK" in
             shared) root=infra/terraform/shared ;;
@@ -73,6 +75,7 @@ jobs:
             *) echo '::error::Unknown Terraform stack'; exit 1 ;;
           esac
           echo "TF_ROOT=$root" >> "$GITHUB_ENV"
+          python3 .github/scripts/production_telemetry_inputs.py
 
       - uses: hashicorp/setup-terraform@v4.0.1
         with:

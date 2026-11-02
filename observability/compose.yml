@@ -1,0 +1,40 @@
+# Local validation backends only. Never expose these unauthenticated listeners to AWS/the internet.
+services:
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver", "--storage.tsdb.retention.time=7d"]
+    ports: ["127.0.0.1:19090:9090"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts/production.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+  tempo:
+    image: grafana/tempo:2.7.2
+    command: ["-config.file=/etc/tempo.yaml"]
+    ports: ["127.0.0.1:13200:3200"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+  collector:
+    image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:b6be1d9c10123821bebc952c62642abc36fe93c39c143faabc14e0e05065695a
+    command: ["--config=/etc/collector.yaml"]
+    ports: ["127.0.0.1:14318:4318"]
+    volumes: ["./collector/local.yaml:/etc/collector.yaml:ro"]
+    depends_on: [prometheus, tempo]
+  grafana:
+    image: grafana/grafana:11.6.0
+    ports: ["127.0.0.1:13000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set a local Grafana admin password}
+      PROMETHEUS_QUERY_URL: http://prometheus:9090
+      TEMPO_QUERY_URL: http://tempo:3200
+      AWS_REGION: eu-west-2
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus, tempo]
+volumes:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

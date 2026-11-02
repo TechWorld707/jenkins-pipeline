@@ -8,6 +8,8 @@ import sys
 import time
 from pathlib import Path
 
+from telemetry.events import emit
+
 
 def aws(*args):
     return json.loads(subprocess.check_output(["aws", *args, "--output", "json"]))
@@ -15,17 +17,27 @@ def aws(*args):
 
 def build():
     sha = os.environ['RELEASE_SHA']
+    overrides = [{'name': 'EXPECTED_COMMIT', 'value': sha, 'type': 'PLAINTEXT'}]
+    if os.getenv('PRODUCTION_OBSERVABILITY_ENABLED', '').lower() == 'true':
+        overrides.extend({'name': name, 'value': value, 'type': 'PLAINTEXT'} for name, value in {
+            'PRODUCTION_OBSERVABILITY_ENABLED': 'true',
+            'PIPELINE_RUN_ID': os.getenv('BUILD_TAG', 'unknown'),
+            'PRODUCTION_EVENT_LOG_GROUP': '/webtech/production/pipeline-events'
+        }.items())
+    emit('codebuild', 'started')
     response = aws('codebuild', 'start-build', '--project-name', os.environ['CODEBUILD_PROJECT'],
                    '--source-version', sha, '--environment-variables-override',
-                   json.dumps([{'name': 'EXPECTED_COMMIT', 'value': sha, 'type': 'PLAINTEXT'}]))
+                   json.dumps(overrides))
     build_id = response['build']['id']
     Path('codebuild-id.txt').write_text(build_id)
+    emit('codebuild.accepted', 'succeeded', codebuild_id=build_id)
     print(f"CodeBuild: {build_id}", flush=True)
     try:
         for _ in range(160):
             result = aws('codebuild', 'batch-get-builds', '--ids', build_id)['builds'][0]
             status = result['buildStatus']
             if status != 'IN_PROGRESS':
+                emit('codebuild', status.lower(), codebuild_id=build_id)
                 if status != 'SUCCEEDED':
                     raise SystemExit(f"CodeBuild {status}. See CloudWatch logs: {result.get('logs', {}).get('deepLink', build_id)}")
                 break

@@ -10,14 +10,23 @@ module "observability" {
   name           = local.name
   vpc_id         = module.network.vpc_id
   retention_days = var.retention_days
+  production_monitoring = {
+    alb_suffix          = module.ingress.alb_arn_suffix
+    target_group_suffix = module.ingress.target_group_arn_suffix
+    database_id         = "${local.name}-postgres"
+    nat_gateway_ids     = module.network.nat_gateway_ids
+    codebuild_project   = "webtech-shared-image-builder"
+    runtime_expected    = var.monitoring_runtime_expected
+  }
 }
 module "database" {
-  source            = "../../modules/database"
-  name              = local.name
-  subnet_ids        = module.network.data_subnet_ids
-  security_group_id = aws_security_group.app["database"].id
-  multi_az          = var.multi_az
-  retention_days    = var.retention_days
+  source                 = "../../modules/database"
+  name                   = local.name
+  subnet_ids             = module.network.data_subnet_ids
+  security_group_id      = aws_security_group.app["database"].id
+  multi_az               = var.multi_az
+  retention_days         = var.retention_days
+  production_log_privacy = true
 }
 module "ingress" {
   source                  = "../../modules/ingress"
@@ -30,17 +39,19 @@ module "ingress" {
   retention_days          = var.retention_days
 }
 module "ecs" {
-  source             = "../../modules/ecs"
-  name               = local.name
-  subnet_ids         = module.network.app_subnet_ids
-  security_group_ids = { for k, v in aws_security_group.app : k => v.id }
-  db_host            = module.database.host
-  db_name            = module.database.name
-  db_secret_arn      = module.database.secret_arn
-  desired_count      = var.desired_count
-  max_task_count     = var.max_task_count
-  retention_days     = var.retention_days
-  target_group_arn   = module.ingress.target_group_arn
-  container_insights = var.environment == "production"
-  depends_on         = [module.ingress, aws_vpc_security_group_egress_rule.https, aws_vpc_security_group_ingress_rule.internal]
+  source                    = "../../modules/ecs"
+  name                      = local.name
+  subnet_ids                = module.network.app_subnet_ids
+  security_group_ids        = { for k, v in aws_security_group.app : k => v.id }
+  db_host                   = module.database.host
+  db_name                   = module.database.name
+  db_secret_arn             = module.database.secret_arn
+  desired_count             = var.desired_count
+  max_task_count            = var.max_task_count
+  retention_days            = var.retention_days
+  target_group_arn          = module.ingress.target_group_arn
+  container_insights        = var.environment == "production"
+  production_telemetry      = var.production_telemetry
+  telemetry_alert_topic_arn = module.observability.production_alert_topic_arn
+  depends_on                = [module.ingress, aws_vpc_security_group_egress_rule.https, aws_vpc_security_group_ingress_rule.internal]
 }

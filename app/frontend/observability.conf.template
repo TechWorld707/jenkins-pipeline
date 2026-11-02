@@ -1,0 +1,22 @@
+map "${OBSERVABILITY_ENABLED}" $production_logs {
+    default 0;
+    "true" 1;
+}
+map $production_logs $legacy_logs {
+    default 1;
+    1 0;
+}
+map $uri $safe_route {
+    default "other";
+    "/" "/";
+    "/healthz" "/healthz";
+    "/api/health/db" "/api/health/db";
+    "/api/enquiries" "/api/enquiries";
+}
+log_format production_json escape=json
+  '{"timestamp":"$time_iso8601","service":"frontend","environment":"production",'
+  '"version":"${RELEASE_SHA}","request_id":"$request_id","route":"$safe_route",'
+  '"trace_id":"$upstream_http_x_trace_id",'
+  '"status":$status,"duration_s":$request_time,"upstream_status":"$upstream_status",'
+  '"upstream_duration_s":"$upstream_response_time"}';
+error_log /dev/stderr ${NGINX_ERROR_LOG_LEVEL};

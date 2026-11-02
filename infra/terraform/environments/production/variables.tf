@@ -3,6 +3,23 @@ variable "environment" {
   description = "Environment name"
 }
 
+variable "monitoring_runtime_expected" {
+  type        = bool
+  default     = false
+  description = "Enable runtime alarm notifications only after an approved production release is running."
+}
+
+variable "production_telemetry" {
+  description = "Required endpoints/secret for production telemetry. Null leaves application exporters disabled."
+  type = object({
+    metrics_url     = string
+    tempo_url       = string
+    auth_secret_arn = string
+    collector_image = optional(string, "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:b6be1d9c10123821bebc952c62642abc36fe93c39c143faabc14e0e05065695a")
+  })
+  default = null
+}
+
 variable "cidr_block" {
   type        = string
   description = "Isolated environment CIDR"

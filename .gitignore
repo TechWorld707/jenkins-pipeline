@@ -31,3 +31,8 @@ Thumbs.db
 !infra/terraform/environments/production/terraform.tfvars
 # Saved plans may contain secrets
 tfplan
+production-telemetry.jsonl
+production-telemetry.sent
+production-deployment.json
+observer-state.json
+annotation-state.json

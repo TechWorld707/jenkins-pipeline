@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+# Enable /etc/prometheus/production-alerts.yml only after production collection
+# and an alert receiver are configured. Until then, no application data is expected.
+rule_files: []
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]
