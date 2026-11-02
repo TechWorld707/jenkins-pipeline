@@ -66,7 +66,20 @@ resource "aws_db_parameter_group" "postgres" {
   }
   parameter {
     name  = "log_min_duration_statement"
-    value = "1000"
+    value = var.production_log_privacy ? "-1" : "1000"
+  }
+  dynamic "parameter" {
+    for_each = var.production_log_privacy ? {
+      log_min_error_statement           = "panic"
+      log_parameter_max_length          = "0"
+      log_parameter_max_length_on_error = "0"
+      log_error_verbosity               = "terse"
+      log_lock_waits                    = "1"
+    } : {}
+    content {
+      name  = parameter.key
+      value = parameter.value
+    }
   }
   lifecycle {
     create_before_destroy = true

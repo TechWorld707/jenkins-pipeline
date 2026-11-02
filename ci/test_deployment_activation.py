@@ -20,6 +20,56 @@ ENV = {
 
 
 class DeploymentActivationTest(unittest.TestCase):
+    def test_production_uses_terraform_templates_and_keeps_collector(self):
+        environment = {key.replace('STAGING', 'PRODUCTION'): value for key, value in ENV.items()}
+        environment['PRODUCTION_OBSERVABILITY_ENABLED'] = 'true'
+        registered, updated = {}, {}
+        calls = []
+
+        def aws(*args):
+            calls.append(args)
+            if args[:2] == ('ssm', 'get-parameter'):
+                return {'Parameter': {'Value': json.dumps({'backend': 'template-backend', 'frontend': 'template-frontend'})}}
+            if args[:2] == ('ecs', 'describe-services'):
+                name = args[-1]
+                return {'services': [{'deploymentController': {'type': 'ECS'}, 'desiredCount': 2,
+                                     'taskDefinition': updated.get(name, 'old-' + name),
+                                     'runningCount': 2, 'pendingCount': 0}]}
+            if args[:2] == ('application-autoscaling', 'describe-scalable-targets'):
+                return {'ScalableTargets': [{'ScalableTargetARN': 'target', 'MaxCapacity': 6}]}
+            if args[:2] == ('application-autoscaling', 'list-tags-for-resource'):
+                return {'Tags': {'ReleaseMinCapacity': '2'}}
+            if args[:2] == ('ecs', 'describe-task-definition'):
+                name = args[-1].split('-')[-1]
+                containers = [{'name': name, 'environment': [{'name': 'TEMPLATE', 'value': args[-1]}]}]
+                if args[-1] == 'template-backend':
+                    containers.append({'name': 'telemetry-collector', 'essential': False})
+                return {'taskDefinition': {'family': name, 'containerDefinitions': containers}}
+            if args[:2] == ('ecs', 'register-task-definition'):
+                task = json.loads(args[-1])
+                registered[task['family']] = task
+                return {'taskDefinition': {'taskDefinitionArn': 'new-' + task['family']}}
+            if args[:2] == ('ecs', 'update-service'):
+                updated[args[args.index('--service') + 1]] = args[args.index('--task-definition') + 1]
+            return {}
+
+        response = MagicMock()
+        response.__enter__.return_value.status = 200
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(DEPLOY.Path, 'read_text', return_value=json.dumps({
+                    'commit': SHA, 'images': {'frontend': IMAGE, 'backend': IMAGE}})), \
+                patch.object(DEPLOY.Path, 'write_text'), patch.object(DEPLOY, 'emit'), \
+                patch.object(DEPLOY, 'aws', side_effect=aws), patch.object(DEPLOY.subprocess, 'run'), \
+                patch.object(DEPLOY.urllib.request, 'urlopen', return_value=response):
+            DEPLOY.main('PRODUCTION')
+        self.assertEqual(sum(call[:2] == ('ssm', 'get-parameter') for call in calls), 1)
+        self.assertEqual(registered['backend']['containerDefinitions'][1]['name'], 'telemetry-collector')
+        for component in ('backend', 'frontend'):
+            container = registered[component]['containerDefinitions'][0]
+            self.assertEqual(container['image'], IMAGE)
+            self.assertIn({'name': 'RELEASE_SHA', 'value': SHA}, container['environment'])
+            self.assertIn({'name': 'TEMPLATE', 'value': 'template-' + component}, container['environment'])
+
     def run_deployment(self, count=0, unhealthy=False, invalid_capacity=False, approved=True):
         calls = []
         registered = set()

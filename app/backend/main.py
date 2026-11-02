@@ -1,5 +1,6 @@
 import os
-from datetime import UTC, datetime
+from contextlib import nullcontext
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -8,6 +9,13 @@ from sqlalchemy import DateTime, Integer, String, create_engine, text
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
+
+try:
+    from .telemetry import ENABLED, configure, failure, instrument, pool_class, record
+except ImportError:
+    from telemetry import ENABLED, configure, failure, instrument, pool_class, record
+
+UTC = timezone.utc  # noqa: UP017 - also support Python 3.10 validation hosts
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
@@ -35,7 +43,14 @@ elif DATABASE_URL.startswith("postgresql://"):
 if not DATABASE_URL.startswith("postgresql+psycopg://"):
     raise RuntimeError("DATABASE_URL must use PostgreSQL (postgresql+psycopg://).")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+pool_options = {}
+if ENABLED:
+    meter, tracer = configure()
+    pool_options = {"poolclass": pool_class(meter, tracer),
+                        "pool_size": int(os.getenv('DB_POOL_SIZE', '2')),
+                        "max_overflow": int(os.getenv('DB_MAX_OVERFLOW', '0')),
+                        "pool_timeout": float(os.getenv('DB_POOL_TIMEOUT', '5'))}
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, hide_parameters=True, **pool_options)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
@@ -62,12 +77,20 @@ class EnquiryCreate(BaseModel):
 
 
 app = FastAPI(title="WebTech Technologies", version="1.0.0")
+if ENABLED:
+    instrument(app, engine, meter)
 
 
 @app.on_event("startup")
 def create_tables() -> None:
     # Suitable for this learning project. A production system should use migrations.
-    Base.metadata.create_all(bind=engine)
+    record('schema.startup.started')
+    try:
+        Base.metadata.create_all(bind=engine)
+        record('schema.startup.completed')
+    except Exception as exc:
+        failure('schema.startup.failed', exc)
+        raise
 
 
 def get_db():
@@ -95,9 +118,11 @@ def create_enquiry(
     enquiry = Enquiry(name=name, email=str(payload.email).lower())
     db.add(enquiry)
     try:
-        db.commit()
-        db.refresh(enquiry)
+        with (tracer.start_as_current_span('enquiry.save') if ENABLED else nullcontext()):
+            db.commit()
+            db.refresh(enquiry)
     except SQLAlchemyError as exc:
+        failure('enquiry.database.failed', exc)
         db.rollback()
         raise HTTPException(
             status_code=503,
@@ -112,6 +137,7 @@ def database_health(db: Annotated[Session, Depends(get_db)]):
     try:
         db.execute(text("SELECT 1"))
     except SQLAlchemyError as exc:
+        failure('health.database.failed', exc)
         raise HTTPException(
             status_code=503,
             detail="Database is unavailable.",

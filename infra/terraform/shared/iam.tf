@@ -69,3 +69,11 @@ resource "aws_iam_role_policy" "codebuild_image_builder" {
   role   = aws_iam_role.codebuild_image_builder.id
   policy = data.aws_iam_policy_document.codebuild_image_builder.json
 }
+resource "aws_iam_role_policy" "codebuild_production_events" {
+  name = "production-observability-events"
+  role = aws_iam_role.codebuild_image_builder.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+    Effect   = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"],
+    Resource = "arn:aws:logs:eu-west-2:${data.aws_caller_identity.current.account_id}:log-group:/webtech/production/pipeline-events:*"
+  }] })
+}

@@ -1,0 +1,22 @@
+groups:
+  - name: webtech-production
+    rules:
+      - alert: ProductionPoolTimeout
+        expr: increase(webtech_db_pool_timeouts_total{environment="production"}[5m]) > 0
+        labels: {severity: warning, environment: production}
+        annotations:
+          summary: Production database pool acquisition timed out
+          runbook: docs/runbooks/production-observability.md
+      - alert: ProductionHttpErrors
+        expr: sum(rate(webtech_http_requests_total{environment="production",status=~"5.."}[5m])) / clamp_min(sum(rate(webtech_http_requests_total{environment="production"}[5m])), 0.001) > 0.05 and sum(increase(webtech_http_requests_total{environment="production"}[5m])) >= 20
+        for: 2m
+        labels: {severity: warning, environment: production}
+        annotations:
+          summary: Production request errors exceed five percent
+      - alert: ProductionTelemetryMissing
+        expr: absent_over_time(webtech_db_pool_in_use{environment="production"}[5m])
+        for: 2m
+        labels: {severity: warning, environment: production}
+        annotations:
+          summary: No production pool measurements received
+          description: Enable rule evaluation only while production is expected to run; check backend, collector and ingestion.
