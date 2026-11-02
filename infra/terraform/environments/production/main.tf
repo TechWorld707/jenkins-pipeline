@@ -39,19 +39,17 @@ module "ingress" {
   retention_days          = var.retention_days
 }
 module "ecs" {
-  source                    = "../../modules/ecs"
-  name                      = local.name
-  subnet_ids                = module.network.app_subnet_ids
-  security_group_ids        = { for k, v in aws_security_group.app : k => v.id }
-  db_host                   = module.database.host
-  db_name                   = module.database.name
-  db_secret_arn             = module.database.secret_arn
-  desired_count             = var.desired_count
-  max_task_count            = var.max_task_count
-  retention_days            = var.retention_days
-  target_group_arn          = module.ingress.target_group_arn
-  container_insights        = var.environment == "production"
-  production_telemetry      = var.production_telemetry
-  telemetry_alert_topic_arn = module.observability.production_alert_topic_arn
-  depends_on                = [module.ingress, aws_vpc_security_group_egress_rule.https, aws_vpc_security_group_ingress_rule.internal]
+  source             = "../../modules/ecs"
+  name               = local.name
+  subnet_ids         = module.network.app_subnet_ids
+  security_group_ids = { for k, v in aws_security_group.app : k => v.id }
+  db_host            = module.database.host
+  db_name            = module.database.name
+  db_secret_arn      = module.database.secret_arn
+  desired_count      = var.desired_count
+  max_task_count     = var.max_task_count
+  retention_days     = var.retention_days
+  target_group_arn   = module.ingress.target_group_arn
+  container_insights = var.environment == "production"
+  depends_on         = [module.ingress, aws_vpc_security_group_egress_rule.https, aws_vpc_security_group_ingress_rule.internal]
 }

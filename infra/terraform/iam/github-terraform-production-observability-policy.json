@@ -1,0 +1,139 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ProductionTelemetryQueues",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:CreateQueue",
+        "sqs:DeleteQueue",
+        "sqs:GetQueueUrl",
+        "sqs:GetQueueAttributes",
+        "sqs:SetQueueAttributes",
+        "sqs:ListQueueTags",
+        "sqs:TagQueue",
+        "sqs:UntagQueue"
+      ],
+      "Resource": [
+        "arn:aws:sqs:eu-west-2:671662643382:webtech-production-ecs-telemetry-dlq",
+        "arn:aws:sqs:eu-west-2:671662643382:webtech-production-codebuild-telemetry-dlq"
+      ]
+    },
+    {
+      "Sid": "ProductionAlertTopic",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:DeleteTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:ListTagsForResource",
+        "sns:TagResource",
+        "sns:UntagResource"
+      ],
+      "Resource": "arn:aws:sns:eu-west-2:671662643382:webtech-production-observability-alerts"
+    },
+    {
+      "Sid": "ProductionEventRules",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:ListTargetsByRule",
+        "events:ListTagsForResource",
+        "events:TagResource",
+        "events:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:events:eu-west-2:671662643382:rule/webtech-production-ecs-observability",
+        "arn:aws:events:eu-west-2:671662643382:rule/webtech-production-codebuild-observability"
+      ]
+    },
+    {
+      "Sid": "ProductionEventLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:DeleteLogGroup",
+        "logs:PutRetentionPolicy",
+        "logs:DeleteRetentionPolicy",
+        "logs:AssociateKmsKey",
+        "logs:DisassociateKmsKey",
+        "logs:ListTagsForResource",
+        "logs:TagResource",
+        "logs:UntagResource",
+        "logs:ListTagsLogGroup",
+        "logs:TagLogGroup",
+        "logs:UntagLogGroup",
+        "logs:PutMetricFilter",
+        "logs:DeleteMetricFilter",
+        "logs:DescribeMetricFilters"
+      ],
+      "Resource": [
+        "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/ecs-events",
+        "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/pipeline-events",
+        "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/telemetry-collector",
+        "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/ecs-events:*",
+        "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/pipeline-events:*",
+        "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/telemetry-collector:*"
+      ]
+    },
+    {
+      "Sid": "ProductionLogDiscoveryAndDeliveryPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeResourcePolicies",
+        "logs:PutResourcePolicy",
+        "logs:DeleteResourcePolicy"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
+    },
+    {
+      "Sid": "ProductionMonitoringAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:ListTagsForResource",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource",
+        "cloudwatch:EnableAlarmActions",
+        "cloudwatch:DisableAlarmActions"
+      ],
+      "Resource": "arn:aws:cloudwatch:eu-west-2:671662643382:alarm:webtech-production-*"
+    },
+    {
+      "Sid": "ProductionDashboard",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutDashboard",
+        "cloudwatch:GetDashboard",
+        "cloudwatch:DeleteDashboards"
+      ],
+      "Resource": "arn:aws:cloudwatch::671662643382:dashboard/webtech-production-observability"
+    },
+    {
+      "Sid": "ProductionTaskTemplateMetadata",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:PutParameter",
+        "ssm:GetParameter",
+        "ssm:DeleteParameter",
+        "ssm:ListTagsForResource",
+        "ssm:AddTagsToResource",
+        "ssm:RemoveTagsFromResource"
+      ],
+      "Resource": "arn:aws:ssm:eu-west-2:671662643382:parameter/webtech-production/observability/task-templates"
+    }
+  ]
+}

@@ -400,3 +400,11 @@ need and cost review. This guide does not change the agreed destinations.
 Supporting records: [current architecture](observability-design.md),
 [implementation reference](../observability/README.md), and
 [validation/plan record](observability-validation.md).
+
+## 13. Recover an apply blocked by monitoring permissions
+
+If `GitHubTerraformApplyRole` receives AccessDenied while creating production
+SQS queues, SNS, event log groups, a dashboard, or EventBridge tags, follow the
+[production IAM recovery instructions](../infra/terraform/iam/PRODUCTION_OBSERVABILITY_RECOVERY.md).
+They include a supplemental policy for administrator review and require a fresh
+plan after a partially failed apply. No AWS permissions are changed by these files.
