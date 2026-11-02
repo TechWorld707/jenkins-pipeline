@@ -1,0 +1,529 @@
+{
+  "uid": "webtech-production",
+  "title": "WebTech production",
+  "schemaVersion": 40,
+  "version": 1,
+  "tags": [
+    "production",
+    "webtech"
+  ],
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Requests / second",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-metrics",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route, status) (rate(webtech_http_requests_total{environment=\"production\"}[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Request p95 (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-metrics",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(webtech_http_request_duration_seconds_bucket{environment=\"production\"}[5m])))"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Connections in use",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-metrics",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(webtech_db_pool_in_use{environment=\"production\"})"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Idle connections",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-metrics",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(webtech_db_pool_idle{environment=\"production\"})"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Pool acquisition p95 (seconds)",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-metrics",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(webtech_db_pool_acquire_duration_seconds_bucket{environment=\"production\"}[5m])))"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Pool timeouts",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-metrics",
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(webtech_db_pool_timeouts_total{environment=\"production\"}[5m]))"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Deployment annotations and outcomes",
+      "type": "logs",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Logs",
+          "region": "eu-west-2",
+          "logGroups": [
+            {
+              "name": "/webtech/production/pipeline-events",
+              "arn": "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/pipeline-events",
+              "accountId": "671662643382"
+            }
+          ],
+          "expression": "fields @timestamp, stage, outcome, commit_sha, services | filter environment = \"production\" | sort @timestamp desc | limit 100",
+          "logGroupNames": [
+            "/webtech/production/pipeline-events"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "ECS lifecycle",
+      "type": "logs",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Logs",
+          "region": "eu-west-2",
+          "logGroups": [
+            {
+              "name": "/webtech/production/ecs-events",
+              "arn": "arn:aws:logs:eu-west-2:671662643382:log-group:/webtech/production/ecs-events",
+              "accountId": "671662643382"
+            }
+          ],
+          "expression": "fields @timestamp, detail.stoppedReason, detail.eventName | sort @timestamp desc | limit 100",
+          "logGroupNames": [
+            "/webtech/production/ecs-events"
+          ]
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Backend CPU",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": {
+            "ClusterName": [
+              "webtech-production"
+            ],
+            "ServiceName": [
+              "webtech-production-backend"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Backend memory",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/ECS",
+          "metricName": "MemoryUtilization",
+          "statistic": "Average",
+          "dimensions": {
+            "ClusterName": [
+              "webtech-production"
+            ],
+            "ServiceName": [
+              "webtech-production-backend"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "RDS connections",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/RDS",
+          "metricName": "DatabaseConnections",
+          "statistic": "Maximum",
+          "dimensions": {
+            "DBInstanceIdentifier": [
+              "webtech-production-postgres"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "RDS CPU",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/RDS",
+          "metricName": "CPUUtilization",
+          "statistic": "Average",
+          "dimensions": {
+            "DBInstanceIdentifier": [
+              "webtech-production-postgres"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "ALB target errors",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_5XX_Count",
+          "statistic": "Sum",
+          "dimensions": {
+            "LoadBalancer": [
+              "$alb_suffix"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "Unhealthy targets",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "UnHealthyHostCount",
+          "statistic": "Maximum",
+          "dimensions": {
+            "LoadBalancer": [
+              "$alb_suffix"
+            ],
+            "TargetGroup": [
+              "$target_group_suffix"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "CodeBuild failures",
+      "type": "timeseries",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "eu-west-2",
+          "namespace": "AWS/CodeBuild",
+          "metricName": "FailedBuilds",
+          "statistic": "Sum",
+          "dimensions": {
+            "ProjectName": [
+              "webtech-shared-image-builder"
+            ]
+          },
+          "matchExact": true,
+          "metricEditorMode": 0,
+          "metricQueryType": 0,
+          "period": "60"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "Request evidence \u2014 copy trace_id into Tempo Explore",
+      "type": "table",
+      "datasource": {
+        "uid": "production-cloudwatch",
+        "type": "cloudwatch"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryMode": "Logs",
+          "region": "eu-west-2",
+          "logGroups": [
+            {
+              "name": "/ecs/webtech-production/backend",
+              "arn": "arn:aws:logs:eu-west-2:671662643382:log-group:/ecs/webtech-production/backend",
+              "accountId": "671662643382"
+            }
+          ],
+          "expression": "fields @timestamp, route, status, request_id, trace_id, version | filter event = \"request.completed\" | sort @timestamp desc | limit 100",
+          "logGroupNames": [
+            "/ecs/webtech-production/backend"
+          ]
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": false,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Deployments",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "alb_suffix",
+        "label": "ALB suffix (Terraform output)",
+        "type": "textbox",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      },
+      {
+        "name": "target_group_suffix",
+        "label": "Target group suffix (Terraform output)",
+        "type": "textbox",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": []
+      }
+    ]
+  }
+}

@@ -40,3 +40,36 @@ run "infrastructure_cannot_launch_application" {
     error_message = "Terraform must not select application release images."
   }
 }
+
+run "production_collector_preserves_manual_launch_boundary" {
+  command = plan
+  variables {
+    name = "webtech-production"
+    production_telemetry = {
+      metrics_url     = "https://metrics.example.invalid/api/v1/write"
+      tempo_url       = "https://tempo.example.invalid"
+      auth_secret_arn = "arn:aws:secretsmanager:eu-west-2:671662643382:secret:test-telemetry"
+      collector_image = "example.invalid/collector:test"
+    }
+  }
+  assert {
+    condition = (
+      aws_ecs_service.backend.desired_count == 0 &&
+      aws_ecs_service.frontend.desired_count == 0 &&
+      length(jsondecode(aws_ecs_task_definition.app["backend"].container_definitions)) == 2 &&
+      jsondecode(aws_ecs_task_definition.app["backend"].container_definitions)[1].essential == false
+    )
+    error_message = "Adding production telemetry must not launch services or make collector availability essential."
+  }
+}
+
+run "staging_does_not_acquire_collector" {
+  command = plan
+  variables {
+    name = "webtech-staging"
+  }
+  assert {
+    condition     = length(jsondecode(aws_ecs_task_definition.app["backend"].container_definitions)) == 1 && length(aws_ssm_parameter.telemetry_templates) == 0
+    error_message = "Staging must retain its single application container without production templates."
+  }
+}

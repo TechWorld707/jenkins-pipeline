@@ -5,7 +5,7 @@ resource "aws_kms_key" "flow_logs" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Sid       = "AccountAdministration"
         Effect    = "Allow"
@@ -25,7 +25,29 @@ resource "aws_kms_key" "flow_logs" {
           }
         }
       }
-    ]
+      ], local.production ? [
+      {
+        Sid       = "ProductionOperationalLogs"
+        Effect    = "Allow"
+        Principal = { Service = "logs.eu-west-2.amazonaws.com" }
+        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
+        Resource  = "*"
+        Condition = { ArnLike = {
+          "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:eu-west-2:${data.aws_caller_identity.current.account_id}:log-group:/webtech/production/*"
+        } }
+      },
+      {
+        Sid       = "ProductionAlarmNotifications"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource  = "*"
+        Condition = {
+          StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+          ArnLike      = { "aws:SourceArn" = "arn:aws:cloudwatch:eu-west-2:${data.aws_caller_identity.current.account_id}:alarm:webtech-production-*" }
+        }
+      }
+    ] : [])
   })
 }
 
