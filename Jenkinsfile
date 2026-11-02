@@ -10,6 +10,7 @@ pipeline {
   }
   parameters {
     booleanParam(name: 'BUILD_ONLY', defaultValue: false, description: 'Build, scan and publish images without deploying; use to bootstrap new infrastructure')
+    booleanParam(name: 'PRODUCTION_OBSERVABILITY_ENABLED', defaultValue: false, description: 'Enable after reviewed observability infrastructure is applied; uses exact Terraform task templates for production only')
     string(name: 'CODEBUILD_PROJECT', defaultValue: 'webtech-shared-image-builder')
     string(name: 'AWS_CREDENTIALS_ID', defaultValue: 'jenkins-aws', description: 'Jenkins AWS credential ID')
     string(name: 'REPORT_BUCKET', defaultValue: 'webtech-shared-reports-671662643382')
@@ -26,6 +27,7 @@ pipeline {
   }
   environment {
     AWS_DEFAULT_REGION = 'eu-west-2'
+    PRODUCTION_EVENT_LOG_GROUP = '/webtech/production/pipeline-events'
   }
   stages {
     stage('Checkout main') {
@@ -48,6 +50,10 @@ pipeline {
           }
         }
       }
+      post {
+        success { sh 'python3 ci/telemetry/events.py configuration succeeded' }
+        unsuccessful { sh 'python3 ci/telemetry/events.py configuration failed' }
+      }
     }
     stage('CodeBuild: build, scan, publish') {
       when { branch 'main' }
@@ -58,6 +64,10 @@ pipeline {
         }
         // Publish scan evidence before waiting for approval.
         archiveArtifacts artifacts: 'codebuild-id.txt,release.json,reports/*.html,reports/*.json'
+      }
+      post {
+        success { sh 'python3 ci/telemetry/events.py build-stage succeeded' }
+        unsuccessful { sh 'python3 ci/telemetry/events.py build-stage failed' }
       }
     }
     stage('Approve staging deployment') {
@@ -124,20 +134,29 @@ ${release}
         sh 'python3 ci/jenkins-release.py production-ready'
         script {
           env.PRODUCTION_DEPLOYMENT_STATUS = 'AWAITING_APPROVAL'
+          env.PRODUCTION_APPROVAL_STARTED = sh(script: 'date +%s', returnStdout: true).trim()
+          sh 'python3 ci/telemetry/events.py production.approval waiting'
           def release = readFile('release.json')
           echo "Staging verified for ${env.RELEASE_SHA}. Review the scan reports and staging verification artifact."
-          timeout(time: 30, unit: 'MINUTES') {
-            def decision = input(
+          try {
+            timeout(time: 30, unit: 'MINUTES') {
+              def decision = input(
               id: 'approve-production',
               message: "Deploy commit ${env.RELEASE_SHA} to ${params.PRODUCTION_CLUSTER}?\nURL: ${params.PRODUCTION_URL}\nImages:\n${release}",
               ok: 'Deploy to production',
               submitter: params.PRODUCTION_APPROVERS.trim(),
               submitterParameter: 'PRODUCTION_APPROVER'
             )
-            env.PRODUCTION_APPROVER = (decision instanceof Map ? decision['PRODUCTION_APPROVER'] : decision).toString()
+              env.PRODUCTION_APPROVER = (decision instanceof Map ? decision['PRODUCTION_APPROVER'] : decision).toString()
+            }
+          } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException interrupted) {
+            env.PRODUCTION_APPROVAL_OUTCOME = interrupted.causes.any { it.class.simpleName == 'ExceededTimeout' } ? 'expired' : 'rejected'
+            sh 'python3 ci/telemetry/events.py production.approval "$PRODUCTION_APPROVAL_OUTCOME"'
+            throw interrupted
           }
           env.PRODUCTION_APPROVED_AT = sh(script: 'date -u +%Y-%m-%dT%H:%M:%SZ', returnStdout: true).trim()
           env.PRODUCTION_DEPLOYMENT_STATUS = 'APPROVED'
+          sh 'python3 ci/telemetry/events.py production.approval granted'
           writeFile file: 'production-approval.txt', text: """Commit: ${env.RELEASE_SHA}
 Approved by: ${env.PRODUCTION_APPROVER}
 Approved at (UTC): ${env.PRODUCTION_APPROVED_AT}
@@ -173,6 +192,17 @@ ${release}
   post {
     always {
       script {
+        if (fileExists('ci/telemetry/events.py')) {
+          env.PIPELINE_RESULT = currentBuild.currentResult
+          try {
+            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: (params.AWS_CREDENTIALS_ID ?: 'jenkins-aws')]]) {
+              sh 'python3 ci/telemetry/events.py pipeline.finished "$PIPELINE_RESULT"'
+              sh 'python3 ci/telemetry/events.py flush'
+            }
+          } catch (Exception telemetryError) {
+            echo 'Production telemetry export unavailable; retain archived evidence and check telemetry health.'
+          }
+        }
         if (env.RELEASE_SHA) {
           writeFile file: 'staging-result.txt', text: """Commit: ${env.RELEASE_SHA}
 Pipeline result: ${currentBuild.currentResult}
@@ -190,7 +220,7 @@ Build: ${env.BUILD_URL}
 """
         }
       }
-      archiveArtifacts artifacts: 'codebuild-id.txt,release.json,reports/*.html,reports/*.json,staging-approval.txt,staging-verification.txt,staging-result.txt,production-approval.txt,production-result.txt', allowEmptyArchive: true
+      archiveArtifacts artifacts: 'codebuild-id.txt,release.json,reports/*.html,reports/*.json,staging-approval.txt,staging-verification.txt,staging-result.txt,production-approval.txt,production-result.txt,production-telemetry.jsonl,production-deployment.json', allowEmptyArchive: true
     }
   }
 }

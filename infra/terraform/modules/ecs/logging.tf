@@ -12,7 +12,7 @@ resource "aws_kms_key" "logs" {
         Principal = { Service = "logs.eu-west-2.amazonaws.com" }
         Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey"]
         Resource  = "*"
-        Condition = { ArnLike = { "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:eu-west-2:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.name}/*" } }
+        Condition = { ArnLike = { "kms:EncryptionContext:aws:logs:arn" = concat(["arn:aws:logs:eu-west-2:${data.aws_caller_identity.current.account_id}:log-group:/ecs/${var.name}/*"], local.telemetry_enabled ? ["arn:aws:logs:eu-west-2:${data.aws_caller_identity.current.account_id}:log-group:/webtech/production/telemetry-collector"] : []) } }
       }
     ]
   })

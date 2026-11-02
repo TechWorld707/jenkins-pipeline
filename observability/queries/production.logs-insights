@@ -1,0 +1,19 @@
+# Request failures. Select /ecs/webtech-production/backend.
+fields @timestamp, event, route, status, error_type, trace_id, version
+| filter environment = "production" and (status >= 500 or ispresent(error_type))
+| sort @timestamp desc
+| limit 100
+
+# Trace lookup. Replace TRACE_ID; select production application log groups.
+fields @timestamp, event, request_id, trace_id, version
+| filter trace_id = "TRACE_ID"
+| sort @timestamp asc
+
+# Delivery outcomes. Select /webtech/production/pipeline-events.
+fields @timestamp, stage, outcome, pipeline_run_id, commit_sha, codebuild_id, services
+| filter ispresent(stage)
+| sort @timestamp desc
+
+# ECS lifecycle. Select /webtech/production/ecs-events.
+fields @timestamp, detail.taskArn, detail.stopCode, detail.stoppedReason, detail.eventName
+| sort @timestamp desc

@@ -73,6 +73,7 @@ jobs:
             *) echo '::error::Unknown Terraform stack'; exit 1 ;;
           esac
           echo "TF_ROOT=$root" >> "$GITHUB_ENV"
+          python3 .github/scripts/production_telemetry_inputs.py
 
       - uses: hashicorp/setup-terraform@v4.0.1
         with:
