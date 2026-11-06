@@ -1,0 +1,138 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+# No shell tracing: credentials must never enter cloud-init/CloudWatch logs.
+dnf install -y docker openssl amazon-cloudwatch-agent
+# The selected Amazon Linux AMI already includes AWS CLI v2.
+command -v aws >/dev/null
+# Small-instance lab: bounded encrypted-root swap absorbs occasional memory spikes.
+# Swap is slower than RAM; this does not make a 2 GiB host suitable for heavy queries.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+fi
+if ! swapon --noheadings --show=NAME | grep -Fxq /swapfile; then swapon /swapfile; fi
+if ! grep -Eq '^/swapfile[[:space:]]' /etc/fstab; then
+  printf '/swapfile none swap sw 0 0\n' >> /etc/fstab
+fi
+printf 'vm.swappiness=10\n' > /etc/sysctl.d/90-webtech-monitoring.conf
+sysctl -p /etc/sysctl.d/90-webtech-monitoring.conf
+systemctl enable --now docker amazon-ssm-agent
+install -d /usr/local/lib/docker/cli-plugins
+curl --fail --location --retry 3 --max-time 180 https://github.com/docker/compose/releases/download/v5.7.0/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+printf '%s  %s\n' '7758048ad38e580f22559603312874fec8bb638d021a9e64182385fc17cc12a2' /usr/local/lib/docker/cli-plugins/docker-compose | sha256sum --check
+chmod 755 /usr/local/lib/docker/cli-plugins/docker-compose
+# Wait for the separate Terraform volume attachment, without assuming NVMe numbering.
+volume_serial=$(printf '%s' '${volume_id}' | tr -d '-')
+device=''
+for attempt in $(seq 1 120); do
+  device=$(lsblk -dn -o PATH,SERIAL | awk -v serial="$volume_serial" '$2 == serial { print $1; exit }')
+  if [ -z "$device" ] && [ -b /dev/xvdf ]; then device=/dev/xvdf; fi
+  if [ -n "$device" ]; then break; fi
+  sleep 5
+done
+test -n "$device"
+if ! blkid "$device" >/dev/null; then mkfs.ext4 "$device"; fi
+install -d -m 755 /srv/webtech-observability
+volume_uuid=$(blkid -s UUID -o value "$device")
+printf 'UUID=%s /srv/webtech-observability ext4 defaults,nofail 0 2\n' "$volume_uuid" >> /etc/fstab
+mount /srv/webtech-observability
+cd /srv/webtech-observability
+python3 - <<'PY'
+import base64, gzip, json, os, pathlib, secrets, subprocess
+assets = json.loads(gzip.decompress(base64.b64decode('${assets}')))
+for filename, value in assets.items():
+    path = pathlib.Path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(base64.b64decode(value))
+    path.chmod(0o644)
+for directory in pathlib.Path('grafana').rglob('*'):
+    if directory.is_dir(): directory.chmod(0o755)
+pathlib.Path('grafana').chmod(0o755)
+images = json.loads(base64.b64decode('${images}'))
+pathlib.Path('.env').write_text(''.join(name.upper() + '_IMAGE=' + image + '\n' for name, image in images.items()))
+pathlib.Path('.env').chmod(0o600)
+pathlib.Path('tls').mkdir(exist_ok=True)
+# Keep the existing certificate/credentials on reboots and volume recovery.
+if not pathlib.Path('tls/server.key').exists():
+    if pathlib.Path('credentials.json').exists():
+        raise SystemExit('Certificate missing on an initialized volume; restore TLS backup before continuing')
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:3072', '-sha256', '-nodes',
+                    '-days', '365', '-keyout', 'tls/server.key', '-out', 'tls/server.crt',
+                    '-subj', '/CN=webtech-production-monitoring',
+                    '-addext', 'subjectAltName=IP:${private_ip}',
+                    '-addext', 'basicConstraints=critical,CA:TRUE'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    password = secrets.token_urlsafe(48)
+    hashed = subprocess.check_output(['openssl', 'passwd', '-6', '-stdin'], input=password.encode()).decode().strip()
+    pathlib.Path('tls/htpasswd').write_text('collector:' + hashed + '\n')
+    authorization = 'Basic ' + base64.b64encode(('collector:' + password).encode()).decode()
+    credentials = dict(metrics_authorization=authorization, tempo_authorization=authorization,
+                       ca_pem=pathlib.Path('tls/server.crt').read_text(), grafana_admin_password=secrets.token_urlsafe(48))
+    pathlib.Path('credentials.json').write_text(json.dumps(credentials))
+# Nginx workers need to read only the public certificate and password hash.
+# The private key stays root-only; plaintext credentials remain mode 0600.
+pathlib.Path('tls').chmod(0o755)
+pathlib.Path('tls/server.crt').chmod(0o644)
+pathlib.Path('tls/server.key').chmod(0o600)
+pathlib.Path('tls/htpasswd').chmod(0o644)
+credentials = json.loads(pathlib.Path('credentials.json').read_text())
+pathlib.Path('credentials.json').chmod(0o600)
+# Grafana runs as UID 472; avoid exposing its password to other local users.
+pathlib.Path('grafana_password').write_text(credentials['grafana_admin_password'])
+os.chown('grafana_password', 472, 472)
+pathlib.Path('grafana_password').chmod(0o400)
+for name, uid in [('prometheus', 65534), ('tempo', 10001), ('grafana', 472)]:
+    path = pathlib.Path('data') / name
+    path.mkdir(parents=True, exist_ok=True)
+    pathlib.Path('data').chmod(0o755)
+    os.chown(path, uid, uid)
+    path.chmod(0o750)
+# Secure values are generated on EC2, never embedded in Terraform user-data/state.
+subprocess.run(['aws', 'secretsmanager', 'put-secret-value', '--region', 'eu-west-2',
+                '--secret-id', '${secret_arn}', '--secret-string', 'file://credentials.json'],
+               check=True, stdout=subprocess.DEVNULL)
+PY
+# Ship host bootstrap/OS logs and disk/memory metrics to the central CloudWatch destination.
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'JSON'
+{"agent":{"region":"eu-west-2"},"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/log/cloud-init-output.log","log_group_name":"/webtech/production/monitoring-host","log_stream_name":"{instance_id}/bootstrap"},{"file_path":"/var/log/messages","log_group_name":"/webtech/production/monitoring-host","log_stream_name":"{instance_id}/system"}]}}},"metrics":{"namespace":"WebTech/MonitoringHost","append_dimensions":{"InstanceId":"$${aws:InstanceId}"},"metrics_collected":{"disk":{"measurement":["used_percent"],"resources":["/srv/webtech-observability"],"drop_device":true},"mem":{"measurement":["mem_used_percent"]}}}}
+JSON
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
+cat > /etc/systemd/system/webtech-monitoring.service <<'UNIT'
+[Unit]
+Description=Production Prometheus Tempo Grafana
+Requires=docker.service
+After=docker.service network-online.target
+RequiresMountsFor=/srv/webtech-observability
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/webtech-observability
+ExecStart=/usr/bin/docker compose up -d --wait --wait-timeout 180
+ExecStop=/usr/bin/docker compose stop
+TimeoutStartSec=900
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now webtech-monitoring
+CREDENTIALS_SECRET_ARN='${secret_arn}' python3 /srv/webtech-observability/setup-annotations.py
+cat > /etc/systemd/system/webtech-monitoring-health.service <<'UNIT'
+[Unit]
+Description=Check monitoring readiness and certificate expiration
+After=webtech-monitoring.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /srv/webtech-observability/check-health.py
+UNIT
+cat > /etc/systemd/system/webtech-monitoring-health.timer <<'UNIT'
+[Unit]
+Description=Monitor observability services independently of Prometheus
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=60s
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+systemctl enable --now webtech-monitoring-health.timer

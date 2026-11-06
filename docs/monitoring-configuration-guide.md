@@ -400,3 +400,14 @@ need and cost review. This guide does not change the agreed destinations.
 Supporting records: [current architecture](observability-design.md),
 [implementation reference](../observability/README.md), and
 [validation/plan record](observability-validation.md).
+
+## 14. Selected hosting: private EC2 and SSM
+
+Prometheus, Tempo and Grafana will run on a private production EC2 monitoring host.
+See the [EC2 deployment and activation runbook](../observability/ec2/README.md)
+for plan review, costs, permissions, SSM browser access, private TLS trust, ECS
+activation, validation, data retention, and remaining alert receiver setup.
+The beginner EC2 variant uses a t3.small with bounded container memory and a
+2 GiB swap file, a 20 GiB data volume plus a 20 GiB OS disk, no
+automated snapshots, and a host-generated private TLS certificate.
+This is a separate Terraform stack; its apply does not deploy application images.

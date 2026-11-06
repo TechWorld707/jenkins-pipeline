@@ -16,6 +16,8 @@ exporters:
     endpoint: ${env:METRICS_REMOTE_WRITE_URL}
     headers:
       Authorization: ${env:METRICS_AUTHORIZATION}
+    tls:
+      ca_pem: ${env:TELEMETRY_CA_PEM}
     resource_to_telemetry_conversion:
       enabled: true
     external_labels:
@@ -32,6 +34,8 @@ exporters:
     endpoint: ${env:TEMPO_OTLP_HTTP_URL}
     headers:
       Authorization: ${env:TEMPO_AUTHORIZATION}
+    tls:
+      ca_pem: ${env:TELEMETRY_CA_PEM}
     sending_queue:
       queue_size: 256
     retry_on_failure:

@@ -509,8 +509,8 @@
         "label": "ALB suffix (Terraform output)",
         "type": "textbox",
         "current": {
-          "text": "",
-          "value": ""
+          "text": "app/webtech-production-alb/6e04c104a718ad0c",
+          "value": "app/webtech-production-alb/6e04c104a718ad0c"
         },
         "options": []
       },
@@ -519,8 +519,8 @@
         "label": "Target group suffix (Terraform output)",
         "type": "textbox",
         "current": {
-          "text": "",
-          "value": ""
+          "text": "targetgroup/webtech-production-frontend/3c91f50b1ebe370f",
+          "value": "targetgroup/webtech-production-frontend/3c91f50b1ebe370f"
         },
         "options": []
       }

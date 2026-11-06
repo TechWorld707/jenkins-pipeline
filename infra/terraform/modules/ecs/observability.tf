@@ -1,19 +1,22 @@
 variable "production_telemetry" {
   description = "Production only. Full Authorization headers come from one Secrets Manager JSON secret."
   type = object({
-    metrics_url     = string
-    tempo_url       = string
-    auth_secret_arn = string
-    collector_image = optional(string, "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:b6be1d9c10123821bebc952c62642abc36fe93c39c143faabc14e0e05065695a")
+    metrics_url      = string
+    tempo_url        = string
+    auth_secret_arn  = string
+    use_private_ca   = optional(bool, false)
+    auth_kms_key_arn = optional(string)
+    collector_image  = optional(string, "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:b6be1d9c10123821bebc952c62642abc36fe93c39c143faabc14e0e05065695a")
   })
   default = null
   validation {
     condition = var.production_telemetry == null ? true : (
       can(regex("^https://[A-Za-z0-9.-]+(:443)?(/[^?#@]*)?$", var.production_telemetry.metrics_url)) &&
       can(regex("^https://[A-Za-z0-9.-]+(:443)?(/[^?#@]*)?$", var.production_telemetry.tempo_url)) &&
-      can(regex("^arn:aws:secretsmanager:eu-west-2:[0-9]{12}:secret:", var.production_telemetry.auth_secret_arn))
+      can(regex("^arn:aws:secretsmanager:eu-west-2:[0-9]{12}:secret:", var.production_telemetry.auth_secret_arn)) &&
+      (var.production_telemetry.auth_kms_key_arn == null ? true : can(regex("^arn:aws:kms:eu-west-2:[0-9]{12}:key/[0-9a-f-]+$", var.production_telemetry.auth_kms_key_arn)))
     )
-    error_message = "Use HTTPS endpoints on port 443 without URL credentials/query/fragment, and a eu-west-2 Secrets Manager ARN."
+    error_message = "Use HTTPS endpoints on port 443 without URL credentials/query/fragment, a eu-west-2 Secrets Manager ARN, and an exact eu-west-2 KMS key ARN if supplied."
   }
 }
 
@@ -41,15 +44,15 @@ locals {
     cpu       = 64
     memory    = 256
     command   = ["--config=env:OTEL_CONFIG"]
-    environment = [
+    environment = concat([
       { name = "OTEL_CONFIG", value = file("${path.module}/../../../../observability/collector/production.yaml") },
       { name = "METRICS_REMOTE_WRITE_URL", value = var.production_telemetry.metrics_url },
       { name = "TEMPO_OTLP_HTTP_URL", value = var.production_telemetry.tempo_url }
-    ]
-    secrets = [
+    ], var.production_telemetry.use_private_ca ? [] : [{ name = "TELEMETRY_CA_PEM", value = "" }])
+    secrets = concat([
       { name = "METRICS_AUTHORIZATION", valueFrom = "${var.production_telemetry.auth_secret_arn}:metrics_authorization::" },
       { name = "TEMPO_AUTHORIZATION", valueFrom = "${var.production_telemetry.auth_secret_arn}:tempo_authorization::" }
-    ]
+    ], var.production_telemetry.use_private_ca ? [{ name = "TELEMETRY_CA_PEM", valueFrom = "${var.production_telemetry.auth_secret_arn}:ca_pem::" }] : [])
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -98,9 +101,12 @@ resource "aws_cloudwatch_metric_alarm" "collector_error" {
 resource "aws_iam_role_policy" "telemetry_secret" {
   count = local.telemetry_enabled ? 1 : 0
   role  = aws_iam_role.execution.id
-  policy = jsonencode({ Version = "2012-10-17", Statement = [{
+  policy = jsonencode({ Version = "2012-10-17", Statement = concat([{
     Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = var.production_telemetry.auth_secret_arn
-  }] })
+    }], var.production_telemetry.auth_kms_key_arn == null ? [] : [{
+    Effect    = "Allow", Action = ["kms:Decrypt"], Resource = var.production_telemetry.auth_kms_key_arn,
+    Condition = { StringEquals = { "kms:ViaService" = "secretsmanager.eu-west-2.amazonaws.com" } }
+  }]) })
 }
 
 # Jenkins reads these exact Terraform-produced templates after manual approval.

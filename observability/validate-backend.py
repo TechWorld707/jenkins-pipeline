@@ -1,4 +1,6 @@
 """Real PostgreSQL + FastAPI OTLP smoke test. Run only against a disposable database."""
+# Configure telemetry and the disposable-database guard before application imports.
+# ruff: noqa: E402
 import json
 import os
 import sys

@@ -1,0 +1,20 @@
+# Tempo 3 single-binary local storage; no span-metrics generator (app metrics already exist).
+stream_over_http_enabled: true
+server:
+  http_listen_port: 3200
+  log_level: warn
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+usage_report:
+  reporting_enabled: false

@@ -1,0 +1,58 @@
+name: webtech-monitoring
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: awslogs
+    options:
+      awslogs-region: eu-west-2
+      awslogs-group: /webtech/production/monitoring-host
+      mode: non-blocking
+      max-buffer-size: 4m
+services:
+  prometheus:
+    <<: *runtime
+    mem_limit: 384m
+    memswap_limit: 768m
+    environment:
+      GOMEMLIMIT: 300MiB
+      GOMAXPROCS: "1"
+    image: ${PROMETHEUS_IMAGE:?Set immutable image}
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver", "--storage.tsdb.retention.time=3d", "--storage.tsdb.retention.size=5GB", "--query.max-concurrency=2", "--query.max-samples=1000000"]
+    ports: ["127.0.0.1:9090:9090"]
+    volumes: ["./prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./data/prometheus:/prometheus"]
+  tempo:
+    <<: *runtime
+    mem_limit: 512m
+    memswap_limit: 1024m
+    environment:
+      GOMEMLIMIT: 384MiB
+      GOMAXPROCS: "1"
+    image: ${TEMPO_IMAGE:?Set immutable image}
+    command: ["-config.file=/etc/tempo.yaml", "-backend-scheduler.provider.work.compaction.block-retention=72h"]
+    ports: ["127.0.0.1:3200:3200"]
+    volumes: ["./tempo.yaml:/etc/tempo.yaml:ro", "./data/tempo:/var/tempo"]
+  grafana:
+    <<: *runtime
+    mem_limit: 384m
+    memswap_limit: 768m
+    image: ${GRAFANA_IMAGE:?Set immutable image}
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      PROMETHEUS_QUERY_URL: http://prometheus:9090
+      TEMPO_QUERY_URL: http://tempo:3200
+      AWS_REGION: eu-west-2
+    volumes:
+      - ./grafana_password:/run/secrets/grafana_password:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./data/grafana:/var/lib/grafana
+  ingress:
+    <<: *runtime
+    mem_limit: 64m
+    memswap_limit: 128m
+    image: ${NGINX_IMAGE:?Set immutable image}
+    ports: ["443:443"]
+    volumes: ["./nginx.conf:/etc/nginx/nginx.conf:ro", "./tls:/etc/nginx/tls:ro"]
+    depends_on: [prometheus, tempo]
