@@ -25,6 +25,9 @@ resource "aws_vpc_security_group_ingress_rule" "collector" {
   to_port                      = 443
   description                  = "Production ECS collector HTTPS only"
 }
+# Dynamic Docker/GitHub registries and AWS APIs require HTTPS via the existing NAT.
+# Egress is TCP 443 only; this follows the approved application-task egress pattern.
+# trivy:ignore:AVD-AWS-0104
 resource "aws_vpc_security_group_egress_rule" "https" {
   security_group_id = aws_security_group.host.id
   ip_protocol       = "tcp"

@@ -82,7 +82,9 @@ alarm resources are installed. The application exporter is not live until the
 approved Jenkins release uses the new templates with observability enabled.
 
 Final validation before source publication: 36 Python tests pass; repository-wide
-Checkov reports 432 passed, 0 failed, 70 documented skips. An intentional delayed
-import in the disposable-database validation script now has a targeted Ruff E402
-annotation so the repository-wide lint gate can retain the required environment
-setup order.
+Checkov reports 432 passed, 0 failed, 70 documented skips. The installed GitHub Ruff 0.17.4
+defaults were verified separately; the disposable-database validator retains its
+required telemetry-before-import order without an unused suppression. The Trivy
+HTTPS egress finding has a resource-local documented exception, matching existing
+application tasks: dynamic GitHub/Docker registries and AWS APIs require TCP 443
+through NAT. No public inbound rule or broader egress port was added.
