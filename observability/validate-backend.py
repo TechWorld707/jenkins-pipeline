@@ -1,4 +1,5 @@
 """Real PostgreSQL + FastAPI OTLP smoke test. Run only against a disposable database."""
+# Configure telemetry and the disposable-database guard before application imports.
 import json
 import os
 import sys

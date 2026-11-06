@@ -73,3 +73,31 @@ run "staging_does_not_acquire_collector" {
     error_message = "Staging must retain its single application container without production templates."
   }
 }
+
+run "private_host_uses_pinned_ca_and_scoped_kms" {
+  command = plan
+  variables {
+    name = "webtech-production"
+    production_telemetry = {
+      metrics_url      = "https://10.20.1.20/api/v1/write"
+      tempo_url        = "https://10.20.1.20"
+      auth_secret_arn  = "arn:aws:secretsmanager:eu-west-2:671662643382:secret:private-telemetry"
+      auth_kms_key_arn = "arn:aws:kms:eu-west-2:671662643382:key/11111111-1111-1111-1111-111111111111"
+      use_private_ca   = true
+    }
+  }
+  assert {
+    condition = anytrue([for secret in jsondecode(aws_ecs_task_definition.app["backend"].container_definitions)[1].secrets :
+      secret.name == "TELEMETRY_CA_PEM" && endswith(secret.valueFrom, ":ca_pem::")
+    ])
+    error_message = "Private ingestion must load the pinned public certificate from Secrets Manager."
+  }
+  assert {
+    condition = (
+      jsondecode(aws_iam_role_policy.telemetry_secret[0].policy).Statement[1].Action[0] == "kms:Decrypt" &&
+      jsondecode(aws_iam_role_policy.telemetry_secret[0].policy).Statement[1].Resource == var.production_telemetry.auth_kms_key_arn &&
+      jsondecode(aws_iam_role_policy.telemetry_secret[0].policy).Statement[1].Condition.StringEquals["kms:ViaService"] == "secretsmanager.eu-west-2.amazonaws.com"
+    )
+    error_message = "Execution role must decrypt only the configured key through Secrets Manager."
+  }
+}

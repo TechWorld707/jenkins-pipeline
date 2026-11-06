@@ -1,0 +1,13 @@
+# Refresh these IDs if production infrastructure is recreated.
+vpc_id                    = "vpc-0d8a10934d0b1ddb2"
+subnet_id                 = "subnet-076b347a71b48220f"
+backend_security_group_id = "sg-0013dbac7f0be0f0a"
+log_kms_key_arn            = "arn:aws:kms:eu-west-2:671662643382:key/db15d4a3-0f91-4506-96c0-b09b73595d74"
+alert_topic_arn           = "arn:aws:sns:eu-west-2:671662643382:webtech-production-observability-alerts"
+# Replace only with reviewed, scanned immutable linux/amd64 release images.
+images = {
+  prometheus = "prom/prometheus@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06"
+  tempo      = "grafana/tempo@sha256:64e2fbd56d9c2b3412a4b430a58ea59e91a670b1e75f920a0c702213ad145044"
+  grafana    = "grafana/grafana@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205"
+  nginx      = "nginx@sha256:a8b39bd9cf0f83869a2162827a0caf6137ddf759d50a171451b335cecc87d236"
+}

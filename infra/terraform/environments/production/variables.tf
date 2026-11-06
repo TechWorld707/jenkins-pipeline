@@ -12,10 +12,12 @@ variable "monitoring_runtime_expected" {
 variable "production_telemetry" {
   description = "Required endpoints/secret for production telemetry. Null leaves application exporters disabled."
   type = object({
-    metrics_url     = string
-    tempo_url       = string
-    auth_secret_arn = string
-    collector_image = optional(string, "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:b6be1d9c10123821bebc952c62642abc36fe93c39c143faabc14e0e05065695a")
+    metrics_url      = string
+    tempo_url        = string
+    auth_secret_arn  = string
+    use_private_ca   = optional(bool, false)
+    auth_kms_key_arn = optional(string)
+    collector_image  = optional(string, "ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib@sha256:b6be1d9c10123821bebc952c62642abc36fe93c39c143faabc14e0e05065695a")
   })
   default = null
 }
