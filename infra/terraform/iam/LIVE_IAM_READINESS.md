@@ -52,3 +52,28 @@ account restrictions and unknown application errors still require real deploymen
 validation. Builds and infrastructure applies were deliberately not run here.
 Policy-version backups and simulation results are private under
 `/tmp/jenkins-live-iam-audit/`; source files in Git record intended permissions.
+
+## Production rebuild repair — 7 November 2026
+
+Terraform's task-template parameter refresh failed because the production apply
+role lacked `ssm:DescribeParameters`. Added `ProductionTaskTemplateDiscovery` to
+`github-terraform-production-observability-policy.json`, with `Resource: "*"`
+and `aws:RequestedRegion=eu-west-2`. AWS does not support parameter resource
+scoping for this metadata-list action. Existing parameter value/write permissions
+remain scoped to `/webtech-production/observability/task-templates`.
+
+The live `GitHubTerraformProductionObservability` managed policy was minimally
+updated to default version `v2`, preserving its existing statements. IAM simulation
+for `GitHubTerraformApplyRole` returned `allowed` for London DescribeParameters.
+The previous policy version remains available for rollback.
+
+The GitHub `PRODUCTION_TELEMETRY_JSON` variable still referred to the destroyed
+monitoring host, secret and key. It was removed, and local production telemetry
+inputs were disabled until monitoring is rebuilt. Neither Jenkinsfile changed.
+At the time of the repair, both production services had desired/running counts
+of zero. No Terraform apply or application deployment was performed in this repair.
+
+Start a **new** GitHub Actions workflow run from current main with `stack=production`
+to refresh partial state and generate a new reviewed plan; do not reuse the failed
+run's saved plan. Approve only after reviewing the new diff. A later monitoring
+connection needs a fresh endpoint/secret/key configuration and its own plan.

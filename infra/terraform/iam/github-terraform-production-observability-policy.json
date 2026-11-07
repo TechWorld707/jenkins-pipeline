@@ -134,6 +134,17 @@
         "ssm:RemoveTagsFromResource"
       ],
       "Resource": "arn:aws:ssm:eu-west-2:671662643382:parameter/webtech-production/observability/task-templates"
+    },
+    {
+      "Sid": "ProductionTaskTemplateDiscovery",
+      "Effect": "Allow",
+      "Action": "ssm:DescribeParameters",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "eu-west-2"
+        }
+      }
     }
   ]
 }
