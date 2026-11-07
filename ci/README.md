@@ -20,8 +20,9 @@ Need a Jenkins server first? Follow the [local Docker setup](../jenkins/README.m
    Jenkins; Docker runs in privileged CodeBuild. Install Pipeline: Input Step for
    manual approval. No github-checks-token credential is required.
 3. Give the Jenkins agent an AWS IAM role (or configure short-lived credentials
-   outside this Jenkinsfile). Scope CodeBuild StartBuild, BatchGetBuilds, StopBuild
-   to webtech-shared-image-builder; allow GetObject for the report prefix and the ECS
+   outside this Jenkinsfile). Scope CodeBuild StartBuild, BatchGetBuilds, ListBuildsForProject, StopBuild
+   to webtech-shared-image-builder; allow GetObject for the report prefix,
+   ECR DescribeImages on the two image repositories, and the ECS
    operations below. Do not place AWS keys in source files.
 4. Provision the shared and environment stacks using the reviewed plans described
    in the infrastructure setup guide below. The GitHub plan/apply workflow now
@@ -225,3 +226,33 @@ See [the deployment flow](../ci/DEPLOYMENT_FLOW.md) for the exact sequence,
 existing-service migration and the additional Jenkins autoscaling permissions.
 Both environment configurations are required for a full run. No initial image
 map is needed for Terraform. Use fresh infrastructure outputs for the URLs.
+
+## Retry an already-published commit
+
+Before starting CodeBuild, Jenkins inspects the latest 30 builds of the configured
+project. If one succeeded for the **exact checked-out commit**, it downloads that
+run's release manifest and archived scan reports. It rechecks the manifest commit,
+both immutable ECR digests in the current account/region, and the original
+HIGH/CRITICAL JSON gate before allowing either manual approval stage. Missing or
+malformed reports, a changed digest, or an inaccessible artifact fails closed;
+Jenkins does not silently rebuild or bypass the check. The original build ID and
+reports are archived with the new Jenkins run and a `codebuild.reuse` event is
+emitted. No image tag is overwritten and no deployment approval is skipped.
+
+Reused reports are the original scans, **not a fresh vulnerability database scan**.
+Review their original build date when approving. A new commit gets a new image
+build/scan. If publication was incomplete or there is no verifiable complete
+release in the bounded history, a new build is attempted; an existing conflicting
+immutable tag can still require a new source commit. Never delete a deployed tag
+or disable immutability merely to get a retry through.
+
+### GitHub status 403
+
+`Could not update commit status: Resource not accessible by personal access token`
+is separate from CodeBuild image publication. Repository cloning can succeed
+with a read-only token while status reporting fails. If Jenkins should publish
+GitHub statuses, edit the token used by the GitHub Branch Source credential to
+allow **Commit statuses: Read and write** for this repository, then update the
+credential in Jenkins if the token value changes. Do not paste tokens into logs,
+source files or chat. This permission is not required to fix an immutable ECR tag
+collision. See [GitHub's permission reference](https://docs.github.com/en/rest/commits/statuses#fine-grained-access-tokens-for-create-a-commit-status).
