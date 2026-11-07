@@ -58,9 +58,11 @@ to the initial zero/suspended state and requires another approved Jenkins releas
 5. Review scan reports, approve staging, verify staging, then approve production.
 
 BUILD_ONLY remains optional: it publishes images and reports but skips all
-application approvals/deployments and does not activate scaling. Never rebuild
-an already-published SHA in immutable ECR repositories; use a new source commit
-for a normal fresh build. Terraform infrastructure approvals do not replace
+application approvals/deployments and does not activate scaling. Jenkins first reuses a verified complete successful release for the exact SHA
+when it is found among the latest 30 project builds; archived scans are rechecked
+but not refreshed. A new source commit gets a normal fresh build. Incomplete or
+unverifiable published tags still require investigation rather than overwriting
+immutable images. Terraform infrastructure approvals do not replace
 Jenkins application approvals, and a Jenkins build-only run deploys nothing.
 
 ## Existing deployment migration

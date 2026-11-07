@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -15,8 +16,68 @@ def aws(*args):
     return json.loads(subprocess.check_output(["aws", *args, "--output", "json"]))
 
 
+def download_release(build_id, sha):
+    prefix = f"s3://{os.environ['REPORT_BUCKET']}/reports/{sha}/{build_id.rsplit(':', 1)[-1]}"
+    subprocess.run(['aws', 's3', 'cp', prefix + '/release.json', 'release.json'], check=True)
+    release = json.loads(Path('release.json').read_text())
+    if release['commit'] != sha:
+        raise SystemExit('Release manifest commit mismatch')
+    subprocess.run(['aws', 's3', 'cp', prefix + '/', 'reports/', '--recursive', '--exclude', '*',
+                    '--include', '*.html', '--include', '*-trivy.json'], check=True)
+
+    return release
+
+
+def verify_reused_release(release, sha):
+    if release.get('commit') != sha:
+        raise SystemExit('Existing release commit mismatch')
+    if set(release.get('images', {})) != {'frontend', 'backend'}:
+        raise SystemExit('Existing release must contain both immutable images')
+    account = aws('sts', 'get-caller-identity')['Account']
+    region = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-2')
+    pattern = (rf'{re.escape(account)}\.dkr\.ecr\.{re.escape(region)}\.amazonaws\.com/'
+               r'(?P<repo>[a-z0-9][a-z0-9._/-]*)@(?P<digest>sha256:[0-9a-f]{64})')
+    for component in ('frontend', 'backend'):
+        match = re.fullmatch(pattern, release['images'][component])
+        if not match:
+            raise SystemExit('Existing release image must use this AWS account/region and an immutable digest')
+        image = aws('ecr', 'describe-images', '--repository-name', match['repo'],
+                    '--image-ids', f'imageTag={sha}')
+        details = image.get('imageDetails', [])
+        if len(details) != 1 or details[0].get('imageDigest') != match['digest']:
+            raise SystemExit('Existing release digest no longer matches the immutable ECR tag')
+        # Reapply the same HIGH/CRITICAL gate to the archived JSON, failing closed
+        # for missing, malformed or blocking reports. This does not refresh the scan DB.
+        subprocess.run([sys.executable, 'ci/image-report.py', component, sha], check=True)
+
+
+def reuse_release(sha):
+    project = os.environ['CODEBUILD_PROJECT']
+    ids = aws('codebuild', 'list-builds-for-project', '--project-name', project,
+              '--sort-order', 'DESCENDING', '--max-items', '30').get('ids', [])
+    if not ids:
+        return False
+    builds = aws('codebuild', 'batch-get-builds', '--ids', *ids)['builds']
+    by_id = {item['id']: item for item in builds}
+    for build_id in ids:
+        item = by_id.get(build_id, {})
+        if (item.get('projectName') != project or item.get('buildStatus') != 'SUCCEEDED'
+                or item.get('resolvedSourceVersion') != sha):
+            continue
+        emit('codebuild.reuse', 'started', codebuild_id=build_id)
+        release = download_release(build_id, sha)
+        verify_reused_release(release, sha)
+        Path('codebuild-id.txt').write_text(build_id)
+        emit('codebuild.reuse', 'succeeded', codebuild_id=build_id)
+        print(f'Reusing verified release {build_id} for {sha}; archived scans are reused, not refreshed.', flush=True)
+        return True
+    return False
+
+
 def build():
     sha = os.environ['RELEASE_SHA']
+    if reuse_release(sha):
+        return
     overrides = [{'name': 'EXPECTED_COMMIT', 'value': sha, 'type': 'PLAINTEXT'}]
     if os.getenv('PRODUCTION_OBSERVABILITY_ENABLED', '').lower() == 'true':
         overrides.extend({'name': name, 'value': value, 'type': 'PLAINTEXT'} for name, value in {
@@ -51,13 +112,7 @@ def build():
             aws('codebuild', 'stop-build', '--id', build_id)
     if result.get('resolvedSourceVersion') != sha:
         raise SystemExit('CodeBuild built a different commit')
-    prefix = f"s3://{os.environ['REPORT_BUCKET']}/reports/{sha}/{build_id.rsplit(':', 1)[-1]}"
-    subprocess.run(['aws', 's3', 'cp', prefix + '/release.json', 'release.json'], check=True)
-    release = json.loads(Path('release.json').read_text())
-    if release['commit'] != sha:
-        raise SystemExit('Release manifest commit mismatch')
-    subprocess.run(['aws', 's3', 'cp', prefix + '/', 'reports/', '--recursive', '--exclude', '*',
-                    '--include', '*.html', '--include', '*-trivy.json'], check=True)
+    download_release(build_id, sha)
 
 
 def interrupted(signum, frame):

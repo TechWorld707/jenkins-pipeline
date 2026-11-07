@@ -47,6 +47,7 @@ class JenkinsBuildTest(unittest.TestCase):
             {'builds': [{'buildStatus': 'SUCCEEDED', 'resolvedSourceVersion': SHA}]},
         ]
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, SETTINGS, clear=True), \
+                patch.object(BUILD, 'reuse_release', return_value=False), \
                 patch.object(BUILD, 'aws', side_effect=responses) as aws, \
                 patch.object(BUILD.subprocess, 'run') as run, \
                 patch.object(BUILD, 'Path', side_effect=lambda name: Path(temp) / name):
@@ -60,6 +61,7 @@ class JenkinsBuildTest(unittest.TestCase):
 
     def test_wrong_source_sha_prevents_artifact_download(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, SETTINGS, clear=True), \
+                patch.object(BUILD, 'reuse_release', return_value=False), \
                 patch.object(BUILD, 'aws', side_effect=[
                     {'build': {'id': 'test-builder:run-id'}},
                     {'builds': [{'buildStatus': 'SUCCEEDED', 'resolvedSourceVersion': 'b' * 40}]},
