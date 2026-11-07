@@ -120,7 +120,7 @@ ${release}
         script { env.PRODUCTION_DEPLOYMENT_STATUS = 'DEPLOYING' }
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: (params.AWS_CREDENTIALS_ID ?: 'jenkins-aws')]]) {
           sh 'aws sts get-caller-identity'
-          sh 'bash ci/deploy.sh PRODUCTION'
+          sh 'python3 ci/deploy-production-only.py'
         }
         script { env.PRODUCTION_DEPLOYMENT_STATUS = 'VERIFIED' }
       }
