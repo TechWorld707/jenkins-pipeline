@@ -29,7 +29,9 @@ rollback evidence, autoscaling activation and telemetry.
    Jenkins user IDs/groups. Blank approvers fail closed. Restrict job configuration
    and parameter editing to trusted release operators.
 8. Keep `PRODUCTION_OBSERVABILITY_ENABLED=false` until the new monitoring host and
-   reviewed collector connection are ready. Then enable it for the approved
+   reviewed collector connection are ready. When unchecked, the production-only
+   adapter removes any inherited `telemetry-collector` and disables application
+   exporters while retaining database secrets and application images. Then enable it for the approved
    application release. `BUILD_ONLY=true` publishes images without deployment.
 9. Review archived scans and release digests, then approve **Deploy to production**.
    Approval expires after 30 minutes. Abort/timeout prevents deployment.
@@ -57,3 +59,18 @@ Run `python3 -m unittest discover -s ci -p 'test_*.py'` with the repository's te
 dependencies and `ruff check ci/production-only-ready.py ci/test_production_only_gate.py`.
 A live Jenkins Declarative syntax check and job run require the restarted Jenkins
 server and published files; those are not implied by Python tests.
+
+## Recovery from retired monitoring credentials
+
+A stability timeout can occur if the active backend task still contains a collector
+referencing a deleted secret. The original shared deployment helper copies the
+active task when telemetry templates are disabled. The separate production job
+therefore uses `ci/deploy-production-only.py` to remove the inherited collector
+at registration when monitoring is unchecked. It retains the existing helper
+for approval checks, image selection, deployment and verification. Both existing
+`Jenkinsfile` and `ci/deploy-ecs.py` remain unchanged.
+
+Merge the adapter, tests, documentation and `Jenkinsfile.production` change; run
+the production-only job from current main with BUILD_ONLY false and observability
+false. Review scans and grant a new manual production approval. Do not grant access
+to the deleted monitoring secret or enable the collector before rebuilding it.
