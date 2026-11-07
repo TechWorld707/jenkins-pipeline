@@ -9,6 +9,10 @@ protection. Production is promoted only after verified staging and a separate ma
 
 Need a Jenkins server first? Follow the [local Docker setup](../jenkins/README.md).
 
+For an independent production-only job without staging infrastructure, use
+[`Jenkinsfile.production`](../Jenkinsfile.production) and the
+[separate job setup guide](PRODUCTION_ONLY.md). The existing job keeps its original flow.
+
 ## Setup before the first run
 
 1. Use a Jenkins Multibranch Pipeline with this repository's Jenkinsfile and a
