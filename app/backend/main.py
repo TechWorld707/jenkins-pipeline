@@ -11,10 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 try:
-    from .query_regression import regression
     from .telemetry import ENABLED, configure, failure, instrument, pool_class, record
 except ImportError:
-    from query_regression import regression
     from telemetry import ENABLED, configure, failure, instrument, pool_class, record
 
 UTC = timezone.utc  # noqa: UP017 - also support Python 3.10 validation hosts
@@ -121,7 +119,6 @@ def create_enquiry(
     db.add(enquiry)
     try:
         with (tracer.start_as_current_span('enquiry.save') if ENABLED else nullcontext()):
-            regression.run(db, record, tracer if ENABLED else None)
             db.commit()
             db.refresh(enquiry)
     except SQLAlchemyError as exc:
